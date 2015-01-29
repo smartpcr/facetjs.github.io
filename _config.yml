@@ -1,0 +1,16 @@
+exclude:
+- CNAME
+
+name: Facet
+
+markdown: redcarpet
+
+redcarpet:
+  extensions: ["tables", "no_intra_emphasis", "fenced_code_blocks"]
+
+highlighter: pygments
+
+title: 'Facet'
+description: 'split-apply-combine; unify data and vis; with single language'
+
+timezone: 'America/Los_Angeles'
