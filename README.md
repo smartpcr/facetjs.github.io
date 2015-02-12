@@ -1,2 +1,3 @@
 # facetjs.github.io
-A website for facetjs
+
+A website for facet.js
