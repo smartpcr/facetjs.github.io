@@ -8,12 +8,11 @@
         <span class="icon-bar"></span>
         <span class="icon-bar"></span>
       </button>
-      <a class="navbar-brand" href="/"><span class="facet-logo"><img class="facet-logo" src="icon/facet_logo.svg"></span></a>
+      <a class="navbar-brand" href="/"><span class="facet-logo"><img class="facet-logo" src="/icon/facet_logo.svg"></span></a>
     </div>
     <div class="navbar-collapse collapse">
       <ul class="nav navbar-nav navbar-right">
-        <li class="{% if page.sectionid == 'druid' %} active{% endif %}"><a href="/facet.html">Overview</a></li>
-        <li class="{% if page.sectionid == 'docs' %} active{% endif %}"><a href="/docs/{{ site.facet_version }}/">Documentation</a></li>
+        <li class="{% if page.sectionid == 'docs' %} active{% endif %}"><a href="/docs/introduction.html">Documentation</a></li>
         <li class="{% if page.sectionid == 'community' %} active{% endif %}"><a href="/community.html">Community</a></li>
         <li class="{% if page.sectionid == 'blog' %} active{% endif %}"><a href="/blog">Blog</a></li>
         <li><a href="{{site.data.contact.twitter}}" class="fa fa-twitter"></a></li>
