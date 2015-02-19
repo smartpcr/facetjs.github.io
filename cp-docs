@@ -1,0 +1,11 @@
+#!/bin/bash
+
+rm -f docs/*.md
+facetjs="../facetjs"
+
+docs=`ls $facetjs/docs/*.md | sed s:$facetjs/docs/::`
+
+for doc in $docs
+do
+  cat docs.md.part $facetjs/docs/$doc > docs/$doc;
+done
