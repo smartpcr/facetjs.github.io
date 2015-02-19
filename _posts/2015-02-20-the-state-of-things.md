@@ -4,11 +4,7 @@ layout: post
 author: Vadim Ogievetsky
 image: http://metamarkets.com/wp-content/uploads/2011/04/fastcar-sized-470x288.jpg
 ---
-
-Thank you for your interest in facet.js.
-
-This is a short writeup of the current state of the project.
-Please read it to understand where the project is right now and where it is heading.
+This is a short writeup of the current state of the project. Please read it to understand where the project is right now and where it is heading.
 
 ## Where is this coming from?
 
