@@ -1,14 +1,11 @@
 .facet-masthead {
-  /* border-top: 1px solid #3b3b50; */
-  border-top: 1px solid rgba(44,238,251, .7);
-  border-image: radial-gradient(#2ceefb, #2ceefb 10%, #1c1c26) 100% 1;
+  border-image: radial-gradient(hsla(309, 63%, 55%, 1), hsla(309, 63%, 55%, 1) 10%, #1c1c26) 100% 1;
   border-width: 1px 0 0 0;
   padding: 0 0 30px;
-  /* color: #fff; */
   color: #c3c3c5;
-  background-color: #1C1C26;
+  background-color: hsla(231, 17%, 15%, 1);
   text-align: center;
-  margin: 0 auto 30px;
+  margin: 0 auto;
 }
 
 .facet-masthead .btn-lg {
@@ -17,15 +14,12 @@
 
 .facet-masthead .text-muted {
   color: rgba(177,186,198,.7);
-  /* color: #c3c3c5; */
 }
 
 .facet-footer {
   padding: 40px 0;
-  /* background-color: #eee; */
   background-color: #f3f3f3;
   border-top: 1px solid white;
-  margin-top: 50px;
 }
 
 .facet-header {
@@ -33,14 +27,10 @@
   margin-bottom: 40px;
   color: #1c1c26;
   text-align: center;
-  background-image: url('/img/druid_watermark_30.png');
   background-size: 400px 400px;
   background-repeat: no-repeat;
   background-position: 10% -90px;
   background-color: #f3f3f3;
-  /* background-color: #eee; */
-  /* background-color: #B6B5AD; */
-  /* background-color: #EDECE2; */
   box-shadow: 0px 2px 9px rgba(0,0,0,.2);
   overflow: hidden;
 }
@@ -66,21 +56,10 @@
   font-size: 24px;
 }
 
-.facet-logo {
-  display: block;
-  width: 120px;
-  height: 22px;
-  background-position:center;
-  background-image: url('/img/druid_nav.png');
-  background-size: 69px 19px;
-  background-repeat: no-repeat;
-}
-
 .facet-bootlogo {
   display: block;
   margin: 0 auto;
-  width: 270px;
-  height: 209px;
+  height: 310px;
   background-size: 450px 209px;
   background-repeat: no-repeat;
   background-position: center;
@@ -99,7 +78,6 @@
   line-height: 140px;
   font-size: 64px;
   border-radius: 20px;
-  /* border: 1px solid #fff; */
 }
 
 .facet-mark {
@@ -117,11 +95,8 @@
 }
 
 .btn-outline-inverse {
-  /* color: rgba(255,255,255,0.7); */
   color: #fff;
-  /* border-color: rgba(255,255,255,0.7); */
   border-color: rgba(177,186,198,.7);
-  /* border-color: #fff; */
 }
 
 .btn-outline-inverse:hover {
@@ -130,7 +105,7 @@
 
 .facet-nav {
   margin-bottom: 0;
-  background-color: #1C1C26;
+  background-color: hsla(231, 17%, 15%, 1);
   border: 0px;
 }
 
@@ -142,6 +117,12 @@
   background-color: #0d0d12;
   border-bottom: 3px solid #2ceefb;
   padding-bottom: 12px;
+}
+
+.facet-nav img.facet-logo {
+  height: 50px;
+  position: absolute;
+  top: 0;
 }
 
 .facet-sidebar.affix {
