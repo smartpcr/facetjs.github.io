@@ -83,4 +83,5 @@ There are a number of components that need to be tweaked and documented to work 
 
 ## Conclusion
 
-Over the next couple of months there will be very active development and growth in facet.js. Please stay tuned.
+Over the next couple of months there will be very active development and growth in facet.js.
+Please stay tuned by following [@facetjs](https://twitter.com/facetjs).
