@@ -134,3 +134,7 @@ var ex1 = facet(remoteDataset)
   .apply("priceOver2", "$price / 2")
   .compute()
 ```
+
+### Example 2
+
+ToDo: fill in ASAP (Feb 20, 2015)

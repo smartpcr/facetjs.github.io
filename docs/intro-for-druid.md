@@ -4,10 +4,10 @@ layout: doc_page
 
 # facet.js <3 Druid
 
-This section is devoted to explaining facet.js if you are coming from the Druid world.
-A familiarity with the Druid query language is assumed here.
+**Note this section is being written right now**
 
-So you have a Druid cluster?! Great.
+This section is devoted to explaining facet.js with the assumption you are coming from the Druid world.
+A familiarity with the Druid query language is expected here.
 
 There are many Druid [libraries](http://druid.io/docs/0.6.171/Libraries.html) out there but they are 1-1 wrappers of
 the Druid API. They save you the hustle of writing JSON but you are still fundamanetaly constrained to the
@@ -16,15 +16,43 @@ expressiveness of the Druid query language.
 
 ## Basic Druid queries expressed in facet.js
 
+Here are facet queries the would translate directly to single Druid queries.
+
 ### TimeBoundary query
 
-### Select query
+*ToDo: add description*
+
+```javascript
+facet()
+  .apply('maxTime', '$wiki.max($timestamp)')
+  .apply('minTime', '$wiki.min($timestamp)')
+```
 
 ### Timeseries query
 
+*ToDo: add description*
+
+```javascript
+facet()
+  .apply('TimeByHour'
+    facet('wiki').split(facet('timestamp').numberBucket('PT1H', 'Etc/UTC'), "Time")
+      .apply('Count', '$wiki.count()')
+      .apply('Added', '$wiki.sum($added)')
+      .sort('Time', 'ascending')
+  )
+```
+
 ### TopN query
 
-### GroupBy query
+*ToDo: add description*
 
-facet.js does not currently make groupBy queries as most of the time TopN queries are superior.
-Support is coming though, stay tuned.
+```javascript
+facet()
+  .apply('Pages'
+    facet('wiki').split('$page', "Page")
+      .apply('Count', '$wiki.count()')
+      .apply('Added', '$wiki.sum($added)')
+      .sort('Count', 'descending')
+      .limit(10)
+  )
+```
