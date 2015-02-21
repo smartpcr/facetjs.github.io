@@ -36,7 +36,7 @@ facet.js promotes a clean separation of UI logic from the particular implementat
 allowing the application the freedom to query data anywhere it’s stored. In the Metamarkets product,
 the native JS driver is used with a sample data file to provide a consistent environment for the running of UI unit tests;
 it also allows instant data exploration by dragging a data file into the browser to be loaded with the native JS driver.
-Finally, facet.js fills in missing or incomplete functionality within the database by providing complex queries beyond
+Finally, facet.js fills in missing or incomplete functionality within the database by providing advanced queries beyond
 the database's language, then breaking them down as necessary for the database to understand.
 
 ## But Wait, There’s More to See

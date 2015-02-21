@@ -41,7 +41,7 @@ There are a number of ways to create expressions:
 Expressions are joined together to create powerful queries.
 These queries, which can be computed on any supported database, are executed by calling ```.compute()```.
 
-Learn more about [expressions here](./expressions.md).
+Learn more about [expressions here](./expressions).
 
 ## Datasets
 
