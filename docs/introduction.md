@@ -120,23 +120,156 @@ This can be used for temporary computations.
 
 ### Example 1
 
-Working with data in facet is achieved by declaring a native or remote dataset and then manipulating it.
+First of all facet and its component parts need to be imported into the project.
+This example will use Druid as the data store.
 
 ```javascript
-var remoteDataset = facet.dataset.druid({
-  /* params */
-})
+// Get the druid requester (which is a node specific module)
+var druidRequester = require('facetjs-druid-requester').druidRequester;
+
+var facet = require('facet');
+
+// For now the only way to query druid is by going through the old (legacy) driver.
+var legacyDriver = facet.core.legacyDriver;
+var druidDriver = facet.legacy.druidDriver;
 ```
 
-Once a dataset is declared it can be used like so:
+Next, the druid connection needs to be configured:
 
 ```javascript
-var ex1 = facet(remoteDataset)
-  .filter("$color = 'D'")
-  .apply("priceOver2", "$price / 2")
-  .compute()
+var druidPass = druidRequester({
+  host: '10.153.211.100' // Where ever your Druid may be
+});
+
+var wikiDriver = legacyDriver(druidDriver({
+  requester: druidPass,
+  dataSource: 'wikipedia_editstream',  // The datasource name in Druid
+  timeAttribute: 'time',  // Druid's anonymous time attribute will be called 'time'
+  forceInterval: true,  // Do not issue queries on unbounded time (no interval set)
+  approximate: true  // Allow approximate results, Druid is not as awesome of you stick to the exact stuff
+}));
 ```
+
+Once that is up and running a simple query can be issued:
+
+```javascript
+var context = {
+  wiki: wikiDriver
+};
+
+var ex = facet()
+  // Define the dataset in context with a filter on time and language
+  .def("wiki",
+    facet('wiki').filter(facet("time").in({
+      start: new Date("2013-02-26T00:00:00Z"),
+      end: new Date("2013-02-27T00:00:00Z")
+    }).and(facet('language').is('en')))
+  )
+
+  // Calculate count
+  .apply('Count', facet('wiki').count())
+
+  // Calculate the total of the `added` attribute
+  .apply('TotalAdded', '$wiki.sum($added)');
+
+ex.compute(context).then(function(data) {
+  // Log the data while converting it to a readable standard
+  console.log(JSON.stringify(data.toJS(), null, 2));
+}).done();
+```
+
+This will output:
+
+```javascript
+[
+  {
+    "Count": 308675,
+    "TotalAdded": 41412583
+  }
+]
+```
+
+A dataset with a single datum in it.
+The attribute of this datum will be the `.apply` calls that we asked Druid to calculate.
+
+This might not look mind blowing but we can build on this concept.
 
 ### Example 2
 
-ToDo: fill in ASAP (Feb 20, 2015)
+Using the same setup as before we can issue a more interesting query:
+
+```javascript
+var context = {
+  wiki: wikiDriver
+};
+
+var ex = facet()
+  .def("wiki",
+    facet('wiki').filter(facet("time").in({
+      start: new Date("2013-02-26T00:00:00Z"),
+      end: new Date("2013-02-27T00:00:00Z")
+    }))
+  )
+  .apply('Count', facet('wiki').count())
+  .apply('TotalAdded', '$wiki.sum($added)')
+  .apply('Pages',
+    facet('wiki').split('$page', 'Page')
+      .apply('Count', facet('wiki').count())
+      .sort('$Count', 'descending')
+      .limit(6)
+  );
+
+ex.compute(context).then(function(data) {
+  // Log the data while converting it to a readable standard
+  console.log(JSON.stringify(data.toJS(), null, 2));
+}).done();
+```
+
+Here a sub split is added. The `Pages` attribute will actually be a dataset that represents the data in `wiki`
+split on the `page` attribute (labeled as `'Page'`) and then the top 6 pages will be taken by applying a sort
+and limit.
+
+The output will look like so:
+
+```javascript
+[
+  {
+    "Count": 573775,
+    "TotalAdded": 124184252,
+    "Page": [
+      {
+        "Page": "Wikipedia:Vandalismusmeldung",
+        "Count": 177
+      },
+      {
+        "Page": "Wikipedia:Administrator_intervention_against_vandalism",
+        "Count": 124
+      },
+      {
+        "Page": "Wikipedia:Auskunft",
+        "Count": 124
+      },
+      {
+        "Page": "Wikipedia:Löschkandidaten/26._Februar_2013",
+        "Count": 88
+      },
+      {
+        "Page": "Wikipedia:Reference_desk/Science",
+        "Count": 88
+      },
+      {
+        "Page": "Wikipedia:Administrators'_noticeboard",
+        "Count": 87
+      }
+    ]
+  }
+]
+```
+
+This is a simple manifestation of a 'group by' like query.
+
+### Example 3
+
+This concept can be nested to produce more and more advanced analysis.
+
+ToDo: fill in ASAP (Feb 25, 2015)
