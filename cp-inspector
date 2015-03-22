@@ -1,0 +1,10 @@
+#!/bin/bash
+
+rm -rf play/*
+
+# The relative location of the facetjs repo
+# They should live side by side
+facetjs="../facetjs"
+
+cp -r $facetjs/inspector/* ./inspector
+cp $facetjs/package/facet.js ./inspector

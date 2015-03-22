@@ -1,0 +1,28 @@
+---
+published: true
+title: play
+layout: html_simple_page
+id: play
+---
+
+<link rel="stylesheet" type="text/css" href="/inspector/style.css">
+<style>
+  .main-cont {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 50px;
+    bottom: 0;
+  }
+</style>
+
+<div class="main-cont">
+  <div class="test-cont">
+    <textarea id="input"></textarea>
+    <pre id="output"></pre>
+    <button id="transform">Transform</button>
+  </div>
+</div>
+<script src="/inspector/lib/d3/d3.js" charset="utf-8"></script>
+<script src="/inspector/facet.js" charset="utf-8"></script>
+<script src="/inspector/script.js" charset="utf-8"></script>
