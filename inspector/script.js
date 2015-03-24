@@ -2,6 +2,10 @@ var facetCore = facet.core;
 var Expression = facetCore.Expression;
 var Dataset = facetCore.Dataset;
 
+var inputField = d3.select('#input');
+var outputField = d3.select('#output');
+var errorField = d3.select('#error');
+
 var defaultQuery = [
   "facet()",
   "  .def('diamonds',",
@@ -29,7 +33,7 @@ try {
   }
 } catch (e) {}
 
-d3.select('#input').property("value", defaultQuery);
+inputField.property("value", defaultQuery);
 
 function saveToLocal() {
   localStorage['query'] = d3.select("#input").property("value");
@@ -57,8 +61,16 @@ context = {
   })
 };
 
-function transform() {
-  var input = d3.select("#input").property("value");
+function error(str) {
+  if (str) {
+    errorField.style('display', 'block').text(str);
+  } else {
+    errorField.style('display', null);
+  }
+}
+
+function simulate() {
+  var input = inputField.property("value");
 
   try {
     input = eval(input);
@@ -66,8 +78,8 @@ function transform() {
       throw new Error("not an expression");
     }
   } catch (e) {
-    d3.select("#output").text("Could not parse as JS Expression");
-    throw e;
+    error("Could not parse as JS Expression");
+    return;
   }
 
   saveToLocal();
@@ -75,16 +87,24 @@ function transform() {
   try {
     var res = input.simulateQueryPlan(context);
   } catch (e) {
-    d3.select("#output").text(e.message);
-    throw e;
+    error(e.message);
+    return;
   }
 
-
   var text = res
-      .map(function(q) { return JSON.stringify(q, null, 2); })
-      .join("\n\n// ---------------------\n\n") + "\n\n\n";
+    .map(function(query) {
+      if (typeof query === 'string') {
+        return query
+      } else {
+        return JSON.stringify(query, null, 2);
+      }
+    })
+    .join("\n\n// ---------------------\n\n") + "\n\n\n";
 
-  d3.select("#output").text(text);
+  error(null);
+  outputField.text(text);
 }
 
-d3.select('#transform').on('click', transform);
+inputField.on('keyup', simulate);
+inputField.on('change', simulate);
+simulate();

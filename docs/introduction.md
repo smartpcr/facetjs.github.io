@@ -128,10 +128,7 @@ This example will use Druid as the data store.
 var druidRequester = require('facetjs-druid-requester').druidRequester;
 
 var facet = require('facet');
-
-// For now the only way to query druid is by going through the old (legacy) driver.
-var legacyDriver = facet.core.legacyDriver;
-var druidDriver = facet.legacy.druidDriver;
+var Dataset = facet.core.Dataset;
 ```
 
 Next, the druid connection needs to be configured:
@@ -141,20 +138,21 @@ var druidPass = druidRequester({
   host: '10.153.211.100' // Where ever your Druid may be
 });
 
-var wikiDriver = legacyDriver(druidDriver({
-  requester: druidPass,
+var wikiDataset = Dataset.fromJS({
+  source: 'druid',
   dataSource: 'wikipedia_editstream',  // The datasource name in Druid
   timeAttribute: 'time',  // Druid's anonymous time attribute will be called 'time'
   forceInterval: true,  // Do not issue queries on unbounded time (no interval set)
-  approximate: true  // Allow approximate results, Druid is not as awesome of you stick to the exact stuff
-}));
+  approximate: true,  // Allow approximate results, Druid is not as awesome of you stick to the exact stuff
+  requester: druidPass
+});
 ```
 
 Once that is up and running a simple query can be issued:
 
 ```javascript
 var context = {
-  wiki: wikiDriver
+  wiki: wikiDataset
 };
 
 var ex = facet()
@@ -200,7 +198,7 @@ Using the same setup as before we can issue a more interesting query:
 
 ```javascript
 var context = {
-  wiki: wikiDriver
+  wiki: wikiDataset
 };
 
 var ex = facet()

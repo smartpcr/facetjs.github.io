@@ -36,10 +36,15 @@ pre#output {
     overflow: scroll;
 }
 
-button#transform {
+#error {
+    display: none;
     position: absolute;
-    bottom: 8px;
-    left: 50%;
-    width: 100px;
-    margin-left: -50px;
+    width: 45%;
+    right: 20px;
+    top: 32px;
+    border: 2px solid red;
+    background: #f0f0f0;
+    border-radius: 4px;
+    padding: 6px;
+    box-sizing: border-box;
 }

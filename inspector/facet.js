@@ -176,6 +176,18 @@ var Core;
         return false;
     }
     Core.datumHasRemote = datumHasRemote;
+    function introspectDatum(datum) {
+        return Q.all(Object.keys(datum).map(function (applyName) {
+            var applyValue = datum[applyName];
+            if (applyValue instanceof Core.RemoteDataset && applyValue.needsIntrospect()) {
+                return applyValue.introspect().then(function (newRemoteDataset) {
+                    datum[applyName] = newRemoteDataset;
+                });
+            }
+            return null;
+        }).filter(Boolean)).then(function () { return datum; });
+    }
+    Core.introspectDatum = introspectDatum;
 })(Core || (Core = {}));
 var __extends = this.__extends || function (d, b) {
     for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
@@ -264,10 +276,19 @@ var Core;
             return value;
         };
         AttributeInfo.prototype.toJS = function () {
-            return this.valueOf();
+            var js = { type: this.type };
+            if (!this.filterable)
+                js.filterable = false;
+            if (!this.splitable)
+                js.splitable = false;
+            if (this.special)
+                js.special = this.special;
+            if (this.datasetType)
+                js.datasetType = this.datasetType;
+            return js;
         };
         AttributeInfo.prototype.toJSON = function () {
-            return this.valueOf();
+            return this.toJS();
         };
         AttributeInfo.prototype.equals = function (other) {
             return AttributeInfo.isAttributeInfo(other) && this.special === other.special && this.type === other.type;
@@ -1135,7 +1156,7 @@ var Core;
         };
         RemoteDataset.prototype.queryValues = function () {
             if (!this.requester) {
-                return Q.reject(new Error('must have a requester to actually do queries'));
+                return Q.reject(new Error('must have a requester to make queries'));
             }
             try {
                 var queryAndPostProcess = this.getQueryAndPostProcess();
@@ -1147,6 +1168,35 @@ var Core;
                 return Q.reject(new Error('no error query or postProcess'));
             }
             return this.requester({ query: queryAndPostProcess.query }).then(queryAndPostProcess.postProcess);
+        };
+        RemoteDataset.prototype.needsIntrospect = function () {
+            return !this.attributes;
+        };
+        RemoteDataset.prototype.getIntrospectQueryAndPostProcess = function () {
+            throw new Error("can not call getIntrospectQueryAndPostProcess directly");
+        };
+        RemoteDataset.prototype.introspect = function () {
+            if (this.attributes) {
+                return Q(this);
+            }
+            if (!this.requester) {
+                return Q.reject(new Error('must have a requester to introspect'));
+            }
+            try {
+                var queryAndPostProcess = this.getIntrospectQueryAndPostProcess();
+            }
+            catch (e) {
+                return Q.reject(e);
+            }
+            if (!hasOwnProperty(queryAndPostProcess, 'query') || typeof queryAndPostProcess.postProcess !== 'function') {
+                return Q.reject(new Error('no error query or postProcess'));
+            }
+            var value = this.valueOf();
+            var ClassFn = Core.Dataset.classMap[this.source];
+            return this.requester({ query: queryAndPostProcess.query }).then(queryAndPostProcess.postProcess).then(function (attributes) {
+                value.attributes = attributes;
+                return (new ClassFn(value));
+            });
         };
         RemoteDataset.type = 'DATASET';
         return RemoteDataset;
@@ -1709,6 +1759,19 @@ var Core;
             source: 'native',
             data: res.map(function (r) { return r.event; })
         });
+    }
+    function postProcessIntrospectFactory(timeAttribute) {
+        return function (res) {
+            var attributes = Object.create(null);
+            attributes[timeAttribute] = new Core.AttributeInfo({ type: 'TIME' });
+            res.dimensions.forEach(function (dimension) {
+                attributes[dimension] = new Core.AttributeInfo({ type: 'STRING' });
+            });
+            res.metrics.forEach(function (metric) {
+                attributes[metric] = new Core.AttributeInfo({ type: 'NUMBER', filterable: false, splitable: false });
+            });
+            return attributes;
+        };
     }
     var DruidDataset = (function (_super) {
         __extends(DruidDataset, _super);
@@ -2362,6 +2425,15 @@ var Core;
                 default:
                     throw new Error("can not get query for: " + this.mode);
             }
+        };
+        DruidDataset.prototype.getIntrospectQueryAndPostProcess = function () {
+            return {
+                query: {
+                    queryType: 'introspect',
+                    dataSource: this.dataSource
+                },
+                postProcess: postProcessIntrospectFactory(this.timeAttribute)
+            };
         };
         DruidDataset.type = 'DATASET';
         DruidDataset.TRUE_INTERVAL = ["1000-01-01/3000-01-01"];
@@ -3301,7 +3373,10 @@ var Core;
             if (!Core.datumHasRemote(context) && !this.hasRemote()) {
                 return Q(this.computeNative(context));
             }
-            return this.referenceCheck(context).resolve(context).simplify()._computeResolved();
+            var ex = this;
+            return Core.introspectDatum(context).then(function (introspectedContext) {
+                return ex.referenceCheck(introspectedContext).resolve(introspectedContext).simplify()._computeResolved();
+            });
         };
         Expression.classMap = {};
         return Expression;
