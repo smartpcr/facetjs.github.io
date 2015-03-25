@@ -30,6 +30,48 @@ var Legacy;
     Legacy.Timezone = Chronology.Timezone;
     Legacy.Duration = Chronology.Duration;
 })(Legacy || (Legacy = {}));
+var __extends = this.__extends || function (d, b) {
+    for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
+    function __() { this.constructor = d; }
+    __.prototype = b.prototype;
+    d.prototype = new __();
+};
+var Core;
+(function (Core) {
+    var SQLDialect = (function () {
+        function SQLDialect() {
+        }
+        SQLDialect.prototype.offsetTimeExpression = function (expression, duration) {
+            throw new Error('Must implement offsetTimeExpression');
+        };
+        return SQLDialect;
+    })();
+    Core.SQLDialect = SQLDialect;
+    var MySQLDialect = (function (_super) {
+        __extends(MySQLDialect, _super);
+        function MySQLDialect() {
+            _super.call(this);
+        }
+        MySQLDialect.prototype.offsetTimeExpression = function (expression, duration) {
+            var sqlFn = "DATE_ADD(";
+            var spans = duration.valueOf();
+            if (spans.week) {
+                return sqlFn + expression + ", INTERVAL " + String(spans.week) + ' WEEK)';
+            }
+            if (spans.year || spans.month) {
+                var expr = String(spans.year || 0) + "-" + String(spans.month || 0);
+                expression = sqlFn + expression + ", INTERVAL '" + expr + "' YEAR_MONTH)";
+            }
+            if (spans.day || spans.hour || spans.minute || spans.second) {
+                var expr = String(spans.day || 0) + " " + [spans.hour || 0, spans.minute || 0, spans.second || 0].join(':');
+                expression = sqlFn + expression + ", INTERVAL '" + expr + "' DAY_SECOND)";
+            }
+            return expression;
+        };
+        return MySQLDialect;
+    })(SQLDialect);
+    Core.MySQLDialect = MySQLDialect;
+})(Core || (Core = {}));
 var Core;
 (function (Core) {
     function getType(value) {
@@ -159,6 +201,10 @@ var Core;
         return v;
     }
     Core.valueToJSInlineType = valueToJSInlineType;
+    function dateToSQL(date) {
+        return date.toISOString().replace("T", " ").replace(/\.\d\d\dZ$/, "").replace(" 00:00:00", "");
+    }
+    Core.dateToSQL = dateToSQL;
     function datumHasRemote(datum) {
         for (var applyName in datum) {
             var applyValue = datum[applyName];
@@ -189,12 +235,6 @@ var Core;
     }
     Core.introspectDatum = introspectDatum;
 })(Core || (Core = {}));
-var __extends = this.__extends || function (d, b) {
-    for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
-    function __() { this.constructor = d; }
-    __.prototype = b.prototype;
-    d.prototype = new __();
-};
 var Core;
 (function (Core) {
     function isInteger(n) {
@@ -497,9 +537,11 @@ var Core;
         Dataset.isDataset = function (candidate) {
             return Core.isInstanceOf(candidate, Dataset);
         };
-        Dataset.register = function (ex) {
-            var op = ex.name.replace('Dataset', '').replace(/^\w/, function (s) { return s.toLowerCase(); });
-            Dataset.classMap[op] = ex;
+        Dataset.register = function (ex, id) {
+            if (id === void 0) { id = null; }
+            if (!id)
+                id = ex.name.replace('Dataset', '').replace(/^\w/, function (s) { return s.toLowerCase(); });
+            Dataset.classMap[id] = ex;
         };
         Dataset.fromJS = function (datasetJS, requester) {
             if (requester === void 0) { requester = null; }
@@ -1274,7 +1316,7 @@ var Core;
             var end = Math.min(this.end, other.end);
             return new NumberRange({ start: start, end: end });
         };
-        NumberRange.prototype.test = function (val) {
+        NumberRange.prototype.contains = function (val) {
             return this.start <= val && val < this.end;
         };
         NumberRange.type = 'NUMBER_RANGE';
@@ -1403,8 +1445,18 @@ var Core;
                 elements: newValues
             });
         };
-        Set.prototype.test = function (value) {
+        Set.prototype.contains = function (value) {
             return hasOwnProperty(this.elements, String(value));
+        };
+        Set.prototype.containsWithin = function (value) {
+            var elements = this.elements;
+            for (var k in elements) {
+                if (!hasOwnProperty(elements, k))
+                    continue;
+                if (elements[k].contains(value))
+                    return true;
+            }
+            return false;
         };
         Set.prototype.add = function (value) {
             var elements = this.elements;
@@ -1658,7 +1710,7 @@ var Core;
             var end = Math.min(this.end.valueOf(), other.end.valueOf());
             return new TimeRange({ start: new Date(start), end: new Date(end) });
         };
-        TimeRange.prototype.test = function (val) {
+        TimeRange.prototype.contains = function (val) {
             return this.start.valueOf() <= val.valueOf() && val.valueOf() < this.end.valueOf();
         };
         TimeRange.type = 'TIME_RANGE';
@@ -1848,6 +1900,18 @@ var Core;
         DruidDataset.prototype.canHandleHavingFilter = function (ex) {
             return !this.limit;
         };
+        DruidDataset.prototype.getDruidDataSource = function () {
+            var dataSource = this.dataSource;
+            if (Array.isArray(dataSource)) {
+                return {
+                    type: "union",
+                    dataSources: dataSource
+                };
+            }
+            else {
+                return dataSource;
+            }
+        };
         DruidDataset.prototype.canUseNativeAggregateFilter = function (filterExpression) {
             if (filterExpression.type !== 'BOOLEAN')
                 throw new Error("must be a BOOLEAN filter");
@@ -1925,6 +1989,19 @@ var Core;
                     else {
                         throw new Error("not supported " + rhsType);
                     }
+                }
+                else {
+                    throw new Error("can not convert " + filter.toString() + " to Druid filter");
+                }
+            }
+            else if (filter instanceof Core.MatchExpression) {
+                var operand = filter.operand;
+                if (operand instanceof Core.RefExpression) {
+                    return {
+                        type: "regex",
+                        dimension: operand.name,
+                        pattern: filter.regexp
+                    };
                 }
                 else {
                     throw new Error("can not convert " + filter.toString() + " to Druid filter");
@@ -2019,7 +2096,7 @@ var Core;
             var postProcess = null;
             if (splitExpression instanceof Core.RefExpression) {
                 var dimensionSpec = (splitExpression.name === label) ? label : { type: "default", dimension: splitExpression.name, outputName: label };
-                if (this.havingFilter.equals(Core.Expression.TRUE) && this.limit) {
+                if (this.havingFilter.equals(Core.Expression.TRUE) && this.limit && this.approximate) {
                     var attributeInfo = this.attributes[splitExpression.name];
                     queryType = 'topN';
                     if (attributeInfo instanceof Core.RangeAttributeInfo) {
@@ -2336,7 +2413,7 @@ var Core;
         DruidDataset.prototype.getQueryAndPostProcess = function () {
             var druidQuery = {
                 queryType: 'timeseries',
-                dataSource: this.dataSource,
+                dataSource: this.getDruidDataSource(),
                 intervals: null,
                 granularity: 'all'
             };
@@ -2430,7 +2507,7 @@ var Core;
             return {
                 query: {
                     queryType: 'introspect',
-                    dataSource: this.dataSource
+                    dataSource: this.getDruidDataSource()
                 },
                 postProcess: postProcessIntrospectFactory(this.timeAttribute)
             };
@@ -2442,6 +2519,163 @@ var Core;
     })(Core.RemoteDataset);
     Core.DruidDataset = DruidDataset;
     Core.Dataset.register(DruidDataset);
+})(Core || (Core = {}));
+var Core;
+(function (Core) {
+    var mySQLDialect = new Core.MySQLDialect();
+    function correctResult(result) {
+        return Array.isArray(result) && (result.length === 0 || typeof result[0] === 'object');
+    }
+    function postProcessFactory(split, label) {
+        if (split instanceof Core.TimeBucketExpression) {
+            var duration = split.duration;
+            var timezone = split.timezone;
+        }
+        else if (split instanceof Core.NumberBucketExpression) {
+            var size = split.size;
+        }
+        return function (res) {
+            if (!correctResult(res)) {
+                var err = new Error("unexpected result from MySQL");
+                err.result = res;
+                throw err;
+            }
+            if (duration || size) {
+                res.forEach(function (d) {
+                    var v = d[label];
+                    if (duration) {
+                        v = new Date(v);
+                        d[label] = new Core.TimeRange({ start: v, end: duration.move(v, timezone) });
+                    }
+                    else {
+                        d[label] = new Core.TimeRange({ start: v, end: v + size });
+                    }
+                    return d;
+                });
+            }
+            return new Core.NativeDataset({ source: 'native', data: res });
+        };
+    }
+    function postProcessIntrospect(columns) {
+        var attributes = Object.create(null);
+        columns.forEach(function (column) {
+            var sqlType = column.Type;
+            if (sqlType === "datetime") {
+                attributes[column.Field] = new Core.AttributeInfo({ type: 'TIME' });
+            }
+            else if (sqlType.indexOf("varchar(") === 0) {
+                attributes[column.Field] = new Core.AttributeInfo({ type: 'STRING' });
+            }
+            else if (sqlType.indexOf("int(") === 0 || sqlType.indexOf("bigint(") === 0) {
+                attributes[column.Field] = new Core.AttributeInfo({ type: 'NUMBER' });
+            }
+            else if (sqlType.indexOf("decimal(") === 0) {
+                attributes[column.Field] = new Core.AttributeInfo({ type: 'NUMBER' });
+            }
+        });
+        return attributes;
+    }
+    var MySQLDataset = (function (_super) {
+        __extends(MySQLDataset, _super);
+        function MySQLDataset(parameters) {
+            _super.call(this, parameters, dummyObject);
+            this._ensureSource("mysql");
+            this.table = parameters.table;
+        }
+        MySQLDataset.fromJS = function (datasetJS) {
+            var value = Core.RemoteDataset.jsToValue(datasetJS);
+            value.table = datasetJS.table;
+            return new MySQLDataset(value);
+        };
+        MySQLDataset.prototype.valueOf = function () {
+            var value = _super.prototype.valueOf.call(this);
+            value.table = this.table;
+            return value;
+        };
+        MySQLDataset.prototype.toJS = function () {
+            var js = _super.prototype.toJS.call(this);
+            js.table = this.table;
+            return js;
+        };
+        MySQLDataset.prototype.equals = function (other) {
+            return _super.prototype.equals.call(this, other) && this.table === other.table;
+        };
+        MySQLDataset.prototype.toHash = function () {
+            return _super.prototype.toHash.call(this) + ':' + this.table;
+        };
+        MySQLDataset.prototype.canHandleFilter = function (ex) {
+            return true;
+        };
+        MySQLDataset.prototype.canHandleTotal = function () {
+            return true;
+        };
+        MySQLDataset.prototype.canHandleSplit = function (ex) {
+            return true;
+        };
+        MySQLDataset.prototype.canHandleSort = function (sortAction) {
+            return true;
+        };
+        MySQLDataset.prototype.canHandleLimit = function (limitAction) {
+            return true;
+        };
+        MySQLDataset.prototype.canHandleHavingFilter = function (ex) {
+            return true;
+        };
+        MySQLDataset.prototype.getQueryAndPostProcess = function () {
+            var table = "`" + this.table + "`";
+            var query = ['SELECT'];
+            switch (this.mode) {
+                case 'raw':
+                    query.push('`' + Object.keys(this.attributes).join('`, `') + '`');
+                    query.push('FROM ' + table);
+                    if (!(this.filter.equals(Core.Expression.TRUE))) {
+                        query.push('WHERE ' + this.filter.getSQL(mySQLDialect));
+                    }
+                    break;
+                case 'total':
+                    query.push(this.applies.map(function (apply) { return apply.getSQL(mySQLDialect); }).join(',\n'));
+                    query.push('FROM ' + table);
+                    if (!(this.filter.equals(Core.Expression.TRUE))) {
+                        query.push('WHERE ' + this.filter.getSQL(mySQLDialect));
+                    }
+                    query.push("GROUP BY ''");
+                    break;
+                case 'split':
+                    query.push([("" + this.split.getSQL(mySQLDialect) + " AS '" + this.label + "'")].concat(this.applies.map(function (apply) { return apply.getSQL(mySQLDialect); })).join(',\n'));
+                    query.push('FROM ' + table);
+                    if (!(this.filter.equals(Core.Expression.TRUE))) {
+                        query.push('WHERE ' + this.filter.getSQL(mySQLDialect));
+                    }
+                    query.push('GROUP BY ' + this.split.getSQL(mySQLDialect, true));
+                    if (!(this.havingFilter.equals(Core.Expression.TRUE))) {
+                        query.push('HAVING ' + this.havingFilter.getSQL(mySQLDialect));
+                    }
+                    if (this.sort) {
+                        query.push(this.sort.getSQL(mySQLDialect));
+                    }
+                    if (this.limit) {
+                        query.push(this.limit.getSQL(mySQLDialect));
+                    }
+                    break;
+                default:
+                    throw new Error("can not get query for: " + this.mode);
+            }
+            return {
+                query: query.join('\n'),
+                postProcess: postProcessFactory(this.split, this.label)
+            };
+        };
+        MySQLDataset.prototype.getIntrospectQueryAndPostProcess = function () {
+            return {
+                query: "DESCRIBE `" + this.table + "`",
+                postProcess: postProcessIntrospect
+            };
+        };
+        MySQLDataset.type = 'DATASET';
+        return MySQLDataset;
+    })(Core.RemoteDataset);
+    Core.MySQLDataset = MySQLDataset;
+    Core.Dataset.register(MySQLDataset, 'mysql');
 })(Core || (Core = {}));
 var Core;
 (function (Core) {
@@ -3022,9 +3256,6 @@ var Core;
         Expression.prototype.simplify = function () {
             return this;
         };
-        Expression.prototype.containsDataset = function () {
-            return this.type === 'DATASET';
-        };
         Expression.prototype.every = function (iter) {
             throw new Error('can not call on base');
         };
@@ -3049,18 +3280,15 @@ var Core;
         Expression.prototype.getFn = function () {
             throw new Error('should never be called directly');
         };
-        Expression.prototype._getRawFnJS = function () {
+        Expression.prototype.getJSExpression = function () {
             throw new Error('should never be called directly');
         };
-        Expression.prototype.getFnJS = function (wrap) {
-            if (wrap === void 0) { wrap = true; }
-            var rawFnJS = this._getRawFnJS();
-            if (wrap) {
-                return 'function(d){return ' + rawFnJS + ';}';
-            }
-            else {
-                return rawFnJS;
-            }
+        Expression.prototype.getJSFn = function () {
+            return "function(d){return " + this.getJSExpression() + ";}";
+        };
+        Expression.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            throw new Error('should never be called directly');
         };
         Expression.prototype.separateViaAnd = function (refName) {
             if (typeof refName !== 'string')
@@ -3433,16 +3661,13 @@ var Core;
             if (simpleOperand.isOp('literal')) {
                 return new Core.LiteralExpression({
                     op: 'literal',
-                    value: this._makeFn(simpleOperand.getFn())(null)
+                    value: this._getFnHelper(simpleOperand.getFn())(null)
                 });
             }
             var simpleValue = this.valueOf();
             simpleValue.operand = simpleOperand;
             simpleValue.simple = true;
             return new (Core.Expression.classMap[this.op])(simpleValue);
-        };
-        UnaryExpression.prototype.containsDataset = function () {
-            return this.operand.containsDataset();
         };
         UnaryExpression.prototype.getReferences = function () {
             return this.operand.getReferences();
@@ -3483,17 +3708,24 @@ var Core;
             delete value.simple;
             return new (Core.Expression.classMap[this.op])(value);
         };
-        UnaryExpression.prototype._makeFn = function (operandFn) {
+        UnaryExpression.prototype._getFnHelper = function (operandFn) {
             throw new Error("should never be called directly");
         };
         UnaryExpression.prototype.getFn = function () {
-            return this._makeFn(this.operand.getFn());
+            return this._getFnHelper(this.operand.getFn());
         };
-        UnaryExpression.prototype._makeFnJS = function (operandFnJS) {
+        UnaryExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
             throw new Error("should never be called directly");
         };
-        UnaryExpression.prototype._getRawFnJS = function () {
-            return this._makeFnJS(this.operand._getRawFnJS());
+        UnaryExpression.prototype.getJSExpression = function () {
+            return this._getJSExpressionHelper(this.operand.getJSExpression());
+        };
+        UnaryExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
+            throw new Error('should never be called directly');
+        };
+        UnaryExpression.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            return this._getSQLHelper(this.operand.getSQL(dialect, minimal), dialect, minimal);
         };
         UnaryExpression.prototype._checkTypeOfOperand = function (wantedType) {
             if (!this.operand.canHaveType(wantedType)) {
@@ -3571,7 +3803,7 @@ var Core;
             if (simpleLhs.isOp('literal') && simpleRhs.isOp('literal')) {
                 return new Core.LiteralExpression({
                     op: 'literal',
-                    value: this._makeFn(simpleLhs.getFn(), simpleRhs.getFn())(null)
+                    value: this._getFnHelper(simpleLhs.getFn(), simpleRhs.getFn())(null)
                 });
             }
             var simpleValue = this.valueOf();
@@ -3579,9 +3811,6 @@ var Core;
             simpleValue.rhs = simpleRhs;
             simpleValue.simple = true;
             return new (Core.Expression.classMap[this.op])(simpleValue);
-        };
-        BinaryExpression.prototype.containsDataset = function () {
-            return this.lhs.containsDataset() || this.rhs.containsDataset();
         };
         BinaryExpression.prototype.getOperandOfType = function (type) {
             var ret = [];
@@ -3628,17 +3857,24 @@ var Core;
             delete value.simple;
             return new (Core.Expression.classMap[this.op])(value);
         };
-        BinaryExpression.prototype._makeFn = function (lhsFn, rhsFn) {
+        BinaryExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
             throw new Error("should never be called directly");
         };
         BinaryExpression.prototype.getFn = function () {
-            return this._makeFn(this.lhs.getFn(), this.rhs.getFn());
+            return this._getFnHelper(this.lhs.getFn(), this.rhs.getFn());
         };
-        BinaryExpression.prototype._makeFnJS = function (lhsFnJS, rhsFnJS) {
+        BinaryExpression.prototype._getJSExpressionHelper = function (lhsFnJS, rhsFnJS) {
             throw new Error("should never be called directly");
         };
-        BinaryExpression.prototype._getRawFnJS = function () {
-            return this._makeFnJS(this.lhs._getRawFnJS(), this.rhs._getRawFnJS());
+        BinaryExpression.prototype.getJSExpression = function () {
+            return this._getJSExpressionHelper(this.lhs.getJSExpression(), this.rhs.getJSExpression());
+        };
+        BinaryExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
+            throw new Error('should never be called directly');
+        };
+        BinaryExpression.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            return this._getSQLHelper(this.lhs.getSQL(dialect, minimal), this.rhs.getSQL(dialect, minimal), dialect, minimal);
         };
         BinaryExpression.prototype._checkTypeOf = function (lhsRhs, wantedType) {
             var operand = this[lhsRhs];
@@ -3722,10 +3958,11 @@ var Core;
             var nonLiteralOperands = simpleOperands.filter(function (operand) { return !operand.isOp('literal'); });
             var literalExpression = new Core.LiteralExpression({
                 op: 'literal',
-                value: this._makeFn(literalOperands.map(function (operand) { return operand.getFn(); }))(null)
+                value: this._getFnHelper(literalOperands.map(function (operand) { return operand.getFn(); }))(null)
             });
             if (nonLiteralOperands.length) {
-                nonLiteralOperands.push(literalExpression);
+                if (literalOperands.length)
+                    nonLiteralOperands.push(literalExpression);
                 var simpleValue = this.valueOf();
                 simpleValue.operands = nonLiteralOperands;
                 simpleValue.simple = true;
@@ -3734,9 +3971,6 @@ var Core;
             else {
                 return literalExpression;
             }
-        };
-        NaryExpression.prototype.containsDataset = function () {
-            return this.operands.some(function (operand) { return operand.containsDataset(); });
         };
         NaryExpression.prototype.getReferences = function () {
             return Core.dedupSort(Array.prototype.concat.apply([], this.operands.map(function (operand) { return operand.getReferences(); })));
@@ -3766,17 +4000,24 @@ var Core;
             delete value.simple;
             return new (Core.Expression.classMap[this.op])(value);
         };
-        NaryExpression.prototype._makeFn = function (operandFns) {
+        NaryExpression.prototype._getFnHelper = function (operandFns) {
             throw new Error("should never be called directly");
         };
         NaryExpression.prototype.getFn = function () {
-            return this._makeFn(this.operands.map(function (operand) { return operand.getFn(); }));
+            return this._getFnHelper(this.operands.map(function (operand) { return operand.getFn(); }));
         };
-        NaryExpression.prototype._makeFnJS = function (operandFnJSs) {
+        NaryExpression.prototype._getJSExpressionHelper = function (operandJSExpressions) {
             throw new Error("should never be called directly");
         };
-        NaryExpression.prototype._getRawFnJS = function () {
-            return this._makeFnJS(this.operands.map(function (operand) { return operand._getRawFnJS(); }));
+        NaryExpression.prototype.getJSExpression = function () {
+            return this._getJSExpressionHelper(this.operands.map(function (operand) { return operand.getJSExpression(); }));
+        };
+        NaryExpression.prototype._getSQLHelper = function (operandSQLs, dialect, minimal) {
+            throw new Error('should never be called directly');
+        };
+        NaryExpression.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            return this._getSQLHelper(this.operands.map(function (operand) { return operand.getSQL(dialect, minimal); }), dialect, minimal);
         };
         NaryExpression.prototype._checkTypeOfOperands = function (wantedType) {
             var operands = this.operands;
@@ -3825,6 +4066,29 @@ var Core;
         };
         ActionsExpression.prototype.toString = function () {
             return this.operand.toString() + this.actions.map(function (action) { return action.toString(); }).join('\n  ');
+        };
+        ActionsExpression.prototype.equals = function (other) {
+            if (!_super.prototype.equals.call(this, other))
+                return false;
+            var thisActions = this.actions;
+            var otherActions = other.actions;
+            if (thisActions.length !== otherActions.length)
+                return false;
+            for (var i = 0; i < thisActions.length; i++) {
+                if (!thisActions[i].equals(otherActions[i]))
+                    return false;
+            }
+            return true;
+        };
+        ActionsExpression.prototype.getFn = function () {
+            throw new Error("can not call getFn on actions");
+        };
+        ActionsExpression.prototype.getJSExpression = function () {
+            throw new Error("can not call getJSExpression on actions");
+        };
+        ActionsExpression.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            throw new Error("can not call getSQL on actions");
         };
         ActionsExpression.prototype._getSimpleActions = function () {
             var filters;
@@ -3968,19 +4232,6 @@ var Core;
             simpleValue.simple = true;
             return new ActionsExpression(simpleValue);
         };
-        ActionsExpression.prototype.equals = function (other) {
-            if (!_super.prototype.equals.call(this, other))
-                return false;
-            var thisActions = this.actions;
-            var otherActions = other.actions;
-            if (thisActions.length !== otherActions.length)
-                return false;
-            for (var i = 0; i < thisActions.length; i++) {
-                if (!thisActions[i].equals(otherActions[i]))
-                    return false;
-            }
-            return true;
-        };
         ActionsExpression.prototype._specialEvery = function (iter) {
             return this.actions.every(function (action) { return action.every(iter); });
         };
@@ -4000,12 +4251,6 @@ var Core;
             value.actions = subActions;
             delete value.simple;
             return new ActionsExpression(value);
-        };
-        ActionsExpression.prototype._makeFn = function (operandFn) {
-            throw new Error("can not call makeFn on actions");
-        };
-        ActionsExpression.prototype._makeFnJS = function (operandFnJS) {
-            throw new Error("implement me");
         };
         ActionsExpression.prototype._performAction = function (action) {
             return new ActionsExpression({
@@ -4146,7 +4391,7 @@ var Core;
         AddExpression.prototype.toString = function () {
             return '(' + this.operands.map(function (operand) { return operand.toString(); }).join(' + ') + ')';
         };
-        AddExpression.prototype._makeFn = function (operandFns) {
+        AddExpression.prototype._getFnHelper = function (operandFns) {
             return function (d) {
                 var res = 0;
                 for (var i = 0; i < operandFns.length; i++) {
@@ -4155,8 +4400,11 @@ var Core;
                 return res;
             };
         };
-        AddExpression.prototype._makeFnJS = function (operandFnJSs) {
-            return '(' + operandFnJSs.join('+') + ')';
+        AddExpression.prototype._getJSExpressionHelper = function (operandJSExpressions) {
+            return '(' + operandJSExpressions.join('+') + ')';
+        };
+        AddExpression.prototype._getSQLHelper = function (operandSQLs, dialect, minimal) {
+            return '(' + operandSQLs.join('+') + ')';
         };
         return AddExpression;
     })(Core.NaryExpression);
@@ -4165,6 +4413,14 @@ var Core;
 })(Core || (Core = {}));
 var Core;
 (function (Core) {
+    var fnToSQL = {
+        count: 'COUNT(',
+        sum: 'SUM(',
+        average: 'AVG(',
+        min: 'MIN(',
+        max: 'MAX(',
+        uniqueCount: 'COUNT(DISTINCT '
+    };
     var AggregateExpression = (function (_super) {
         __extends(AggregateExpression, _super);
         function AggregateExpression(parameters) {
@@ -4210,8 +4466,28 @@ var Core;
             }
             return js;
         };
+        AggregateExpression.prototype.toString = function () {
+            return this.operand.toString() + '.' + this.fn + '(' + (this.attribute ? this.attribute.toString() : '') + ')';
+        };
         AggregateExpression.prototype.equals = function (other) {
             return _super.prototype.equals.call(this, other) && this.fn === other.fn && Boolean(this.attribute) === Boolean(other.attribute) && (!this.attribute || this.attribute.equals(other.attribute));
+        };
+        AggregateExpression.prototype._getFnHelper = function (operandFn) {
+            var fn = this.fn;
+            var attribute = this.attribute;
+            var attributeFn = attribute ? attribute.getFn() : null;
+            return function (d) { return operandFn(d)[fn](attributeFn, attribute); };
+        };
+        AggregateExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
+            throw new Error("implement me");
+        };
+        AggregateExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
+            var operand = this.operand;
+            if (operand instanceof Core.RefExpression) {
+                var attributeSQL = this.attribute ? this.attribute.getSQL(dialect, minimal) : '1';
+                return fnToSQL[this.fn] + attributeSQL + ')';
+            }
+            throw new Error("can not getSQL with complex operand");
         };
         AggregateExpression.prototype._specialEvery = function (iter) {
             return this.attribute ? this.attribute.every(iter) : true;
@@ -4237,9 +4513,6 @@ var Core;
             delete value.simple;
             return new AggregateExpression(value);
         };
-        AggregateExpression.prototype.toString = function () {
-            return this.operand.toString() + '.' + this.fn + '(' + (this.attribute ? this.attribute.toString() : '') + ')';
-        };
         AggregateExpression.prototype.getComplexity = function () {
             return 1 + this.operand.getComplexity() + (this.attribute ? this.attribute.getComplexity() : 0);
         };
@@ -4250,7 +4523,7 @@ var Core;
             if (simpleOperand instanceof Core.LiteralExpression && !simpleOperand.isRemote()) {
                 return new Core.LiteralExpression({
                     op: 'literal',
-                    value: this._makeFn(simpleOperand.getFn())(null)
+                    value: this._getFnHelper(simpleOperand.getFn())(null)
                 });
             }
             var simpleValue = this.valueOf();
@@ -4260,18 +4533,6 @@ var Core;
             }
             simpleValue.simple = true;
             return new AggregateExpression(simpleValue);
-        };
-        AggregateExpression.prototype.containsDataset = function () {
-            return true;
-        };
-        AggregateExpression.prototype._makeFn = function (operandFn) {
-            var fn = this.fn;
-            var attribute = this.attribute;
-            var attributeFn = attribute ? attribute.getFn() : null;
-            return function (d) { return operandFn(d)[fn](attributeFn, attribute); };
-        };
-        AggregateExpression.prototype._makeFnJS = function (operandFnJS) {
-            throw new Error("implement me");
         };
         AggregateExpression.prototype._fillRefSubstitutions = function (typeContext, alterations) {
             var datasetContext = this.operand._fillRefSubstitutions(typeContext, alterations);
@@ -4320,7 +4581,22 @@ var Core;
             });
         };
         AndExpression.prototype.toString = function () {
-            return 'and(' + this.operands.map(function (operand) { return operand.toString(); }) + ')';
+            return '(' + this.operands.map(function (operand) { return operand.toString(); }).join(' and ') + ')';
+        };
+        AndExpression.prototype._getFnHelper = function (operandFns) {
+            return function (d) {
+                var res = true;
+                for (var i = 0; i < operandFns.length; i++) {
+                    res = res && operandFns[i](d);
+                }
+                return res;
+            };
+        };
+        AndExpression.prototype._getJSExpressionHelper = function (operandJSExpressions) {
+            return '(' + operandJSExpressions.join('&&') + ')';
+        };
+        AndExpression.prototype._getSQLHelper = function (operandSQLs, dialect, minimal) {
+            return '(' + operandSQLs.join(' AND ') + ')';
         };
         AndExpression.prototype.simplify = function () {
             if (this.simple)
@@ -4402,12 +4678,6 @@ var Core;
                 excluded: new AndExpression({ op: 'and', operands: excludedExpressions }).simplify()
             };
         };
-        AndExpression.prototype._makeFn = function (operandFns) {
-            throw new Error("should never be called directly");
-        };
-        AndExpression.prototype._makeFnJS = function (operandFnJSs) {
-            throw new Error("should never be called directly");
-        };
         return AndExpression;
     })(Core.NaryExpression);
     Core.AndExpression = AndExpression;
@@ -4429,6 +4699,17 @@ var Core;
         ConcatExpression.prototype.toString = function () {
             return this.operands.map(function (operand) { return operand.toString(); }).join(' ++ ');
         };
+        ConcatExpression.prototype._getFnHelper = function (operandFns) {
+            return function (d) {
+                return operandFns.map(function (operandFn) { return operandFn(d); }).join('');
+            };
+        };
+        ConcatExpression.prototype._getJSExpressionHelper = function (operandJSExpressions) {
+            return '(' + operandJSExpressions.join('+') + ')';
+        };
+        ConcatExpression.prototype._getSQLHelper = function (operandSQLs, dialect, minimal) {
+            return 'CONCAT(' + operandSQLs.join(',') + ')';
+        };
         ConcatExpression.prototype.simplify = function () {
             if (this.simple)
                 return this;
@@ -4437,7 +4718,7 @@ var Core;
             if (hasLiteralOperandsOnly) {
                 return new Core.LiteralExpression({
                     op: 'literal',
-                    value: this._makeFn(simplifiedOperands.map(function (operand) { return operand.getFn(); }))(null)
+                    value: this._getFnHelper(simplifiedOperands.map(function (operand) { return operand.getFn(); }))(null)
                 });
             }
             var i = 0;
@@ -4457,14 +4738,6 @@ var Core;
             simpleValue.operands = simplifiedOperands;
             simpleValue.simple = true;
             return new ConcatExpression(simpleValue);
-        };
-        ConcatExpression.prototype._makeFn = function (operandFns) {
-            return function (d) {
-                return operandFns.map(function (operandFn) { return operandFn(d); }).join('');
-            };
-        };
-        ConcatExpression.prototype._makeFnJS = function (operandFnJSs) {
-            return '(' + operandFnJSs.join('+') + ')';
         };
         return ConcatExpression;
     })(Core.NaryExpression);
@@ -4486,7 +4759,7 @@ var Core;
             return new GreaterThanExpression(Core.BinaryExpression.jsToValue(parameters));
         };
         GreaterThanExpression.prototype.toString = function () {
-            return this.lhs.toString() + ' > ' + this.rhs.toString();
+            return "" + this.lhs.toString() + " > " + this.rhs.toString();
         };
         GreaterThanExpression.prototype.simplify = function () {
             return (new Core.LessThanExpression({
@@ -4495,11 +4768,14 @@ var Core;
                 rhs: this.lhs
             })).simplify();
         };
-        GreaterThanExpression.prototype._makeFn = function (lhsFn, rhsFn) {
+        GreaterThanExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
             return function (d) { return lhsFn(d) > rhsFn(d); };
         };
-        GreaterThanExpression.prototype._makeFnJS = function (lhsFnJS, rhsFnJS) {
-            throw '(' + lhsFnJS + '>' + rhsFnJS + ')';
+        GreaterThanExpression.prototype._getJSExpressionHelper = function (lhsFnJS, rhsFnJS) {
+            return "(" + lhsFnJS + ">" + rhsFnJS + ")";
+        };
+        GreaterThanExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
+            return "(" + lhsSQL + ">" + rhsSQL + ")";
         };
         return GreaterThanExpression;
     })(Core.BinaryExpression);
@@ -4521,7 +4797,7 @@ var Core;
             return new GreaterThanOrEqualExpression(Core.BinaryExpression.jsToValue(parameters));
         };
         GreaterThanOrEqualExpression.prototype.toString = function () {
-            return this.lhs.toString() + ' = ' + this.rhs.toString();
+            return "" + this.lhs.toString() + " = " + this.rhs.toString();
         };
         GreaterThanOrEqualExpression.prototype.simplify = function () {
             return (new Core.LessThanOrEqualExpression({
@@ -4530,11 +4806,14 @@ var Core;
                 rhs: this.lhs
             })).simplify();
         };
-        GreaterThanOrEqualExpression.prototype._makeFn = function (lhsFn, rhsFn) {
+        GreaterThanOrEqualExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
             return function (d) { return lhsFn(d) >= rhsFn(d); };
         };
-        GreaterThanOrEqualExpression.prototype._makeFnJS = function (lhsFnJS, rhsFnJS) {
-            throw '(' + lhsFnJS + '>=' + rhsFnJS + ')';
+        GreaterThanOrEqualExpression.prototype._getJSExpressionHelper = function (lhsFnJS, rhsFnJS) {
+            return "(" + lhsFnJS + ">=" + rhsFnJS + ")";
+        };
+        GreaterThanOrEqualExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
+            return "(" + lhsSQL + ">=" + rhsSQL + ")";
         };
         return GreaterThanOrEqualExpression;
     })(Core.BinaryExpression);
@@ -4559,7 +4838,49 @@ var Core;
             return new InExpression(Core.BinaryExpression.jsToValue(parameters));
         };
         InExpression.prototype.toString = function () {
-            return this.lhs.toString() + ' = ' + this.rhs.toString();
+            return "" + this.lhs.toString() + " in " + this.rhs.toString();
+        };
+        InExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
+            var lhsType = this.lhs.type;
+            var rhsType = this.rhs.type;
+            if ((lhsType === 'NUMBER' && rhsType === 'SET/NUMBER_RANGE') || (lhsType === 'TIME' && rhsType === 'SET/TIME_RANGE')) {
+                return function (d) { return (rhsFn(d)).containsWithin(lhsFn(d)); };
+            }
+            else {
+                return function (d) { return (rhsFn(d)).contains(lhsFn(d)); };
+            }
+        };
+        InExpression.prototype._getJSExpressionHelper = function (lhsFnJS, rhsFnJS) {
+            var lhsType = this.lhs.type;
+            var rhsType = this.rhs.type;
+            if ((lhsType === 'NUMBER' && rhsType === 'SET/NUMBER_RANGE') || (lhsType === 'TIME' && rhsType === 'SET/TIME_RANGE')) {
+                return "" + rhsFnJS + ".containsWithin(" + lhsFnJS + ")";
+            }
+            else {
+                return "" + rhsFnJS + ".contains(" + lhsFnJS + ")";
+            }
+        };
+        InExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
+            var rhs = this.rhs;
+            var rhsType = rhs.type;
+            switch (rhsType) {
+                case 'NUMBER_RANGE':
+                    if (rhs instanceof Core.LiteralExpression) {
+                        var numberRange = rhs.value;
+                        return "(" + numberRange.start + "<=" + lhsSQL + " AND " + lhsSQL + "<" + numberRange.end + ")";
+                    }
+                    throw new Error('not implemented yet');
+                case 'TIME_RANGE':
+                    if (rhs instanceof Core.LiteralExpression) {
+                        var timeRange = rhs.value;
+                        return "('" + Core.dateToSQL(timeRange.start) + "'<=" + lhsSQL + " AND " + lhsSQL + "<'" + Core.dateToSQL(timeRange.end) + "')";
+                    }
+                    throw new Error('not implemented yet');
+                case 'SET/STRING':
+                    return "" + lhsSQL + " in " + rhsSQL;
+                default:
+                    throw new Error('not implemented yet');
+            }
         };
         InExpression.prototype.mergeAnd = function (exp) {
             if (!this.checkLefthandedness())
@@ -4623,12 +4944,6 @@ var Core;
             }
             return exp;
         };
-        InExpression.prototype._makeFn = function (lhsFn, rhsFn) {
-            return function (d) { return rhsFn(d).test(lhsFn(d)); };
-        };
-        InExpression.prototype._makeFnJS = function (lhsFnJS, rhsFnJS) {
-            throw new Error("implement me!");
-        };
         InExpression.prototype._specialSimplify = function (simpleLhs, simpleRhs) {
             if (simpleLhs instanceof Core.RefExpression && simpleRhs instanceof Core.LiteralExpression && simpleRhs.type.indexOf('SET/') === 0 && simpleRhs.value.empty())
                 return Core.Expression.FALSE;
@@ -4657,7 +4972,16 @@ var Core;
             return new IsExpression(Core.BinaryExpression.jsToValue(parameters));
         };
         IsExpression.prototype.toString = function () {
-            return this.lhs.toString() + ' = ' + this.rhs.toString();
+            return "" + this.lhs.toString() + " = " + this.rhs.toString();
+        };
+        IsExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
+            return function (d) { return lhsFn(d) === rhsFn(d); };
+        };
+        IsExpression.prototype._getJSExpressionHelper = function (lhsFnJS, rhsFnJS) {
+            return "(" + lhsFnJS + "===" + rhsFnJS + ")";
+        };
+        IsExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
+            return "(" + lhsSQL + "=" + rhsSQL + ")";
         };
         IsExpression.prototype.getComplexity = function () {
             return 1 + this.lhs.getComplexity() + this.rhs.getComplexity();
@@ -4689,7 +5013,7 @@ var Core;
                 if (expRhs instanceof Core.LiteralExpression) {
                     var rValue = expRhs.value;
                     if (rValue instanceof Core.Set || rValue instanceof Core.TimeRange || rValue instanceof Core.NumberRange) {
-                        if (rValue.test(thisValue)) {
+                        if (rValue.contains(thisValue)) {
                             return this;
                         }
                         else {
@@ -4739,7 +5063,7 @@ var Core;
                 if (expRhs instanceof Core.LiteralExpression) {
                     var rValue = expRhs.value;
                     if (rValue instanceof Core.Set) {
-                        if (rValue.test(thisValue)) {
+                        if (rValue.contains(thisValue)) {
                             return exp;
                         }
                         else {
@@ -4754,7 +5078,7 @@ var Core;
                         }
                     }
                     else if (rValue instanceof Core.TimeRange || rValue instanceof Core.NumberRange) {
-                        if (rValue.test(thisValue)) {
+                        if (rValue.contains(thisValue)) {
                             return exp;
                         }
                         else {
@@ -4767,12 +5091,6 @@ var Core;
             else {
                 return null;
             }
-        };
-        IsExpression.prototype._makeFn = function (lhsFn, rhsFn) {
-            return function (d) { return lhsFn(d) === rhsFn(d); };
-        };
-        IsExpression.prototype._makeFnJS = function (lhsFnJS, rhsFnJS) {
-            return '(' + lhsFnJS + '===' + rhsFnJS + ')';
         };
         IsExpression.prototype._specialSimplify = function (simpleLhs, simpleRhs) {
             if (simpleLhs.equals(simpleRhs))
@@ -4833,10 +5151,7 @@ var Core;
         LabelExpression.prototype.toString = function () {
             return this.operand.toString() + ".label('" + this.name + "')";
         };
-        LabelExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.name === other.name;
-        };
-        LabelExpression.prototype._makeFn = function (operandFn) {
+        LabelExpression.prototype._getFnHelper = function (operandFn) {
             var name = this.name;
             return function (d) {
                 var mySet = operandFn(d);
@@ -4845,8 +5160,14 @@ var Core;
                 return mySet.label(name);
             };
         };
-        LabelExpression.prototype._makeFnJS = function (operandFnJS) {
-            throw new Error("implement me");
+        LabelExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
+            throw "" + operandFnJS + ".label(" + this.name + ")";
+        };
+        LabelExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
+            return "" + operandSQL + " AS \"" + this.name + "\"";
+        };
+        LabelExpression.prototype.equals = function (other) {
+            return _super.prototype.equals.call(this, other) && this.name === other.name;
         };
         LabelExpression.prototype._specialSimplify = function (simpleOperand) {
             if (simpleOperand instanceof Core.AggregateExpression && simpleOperand.fn === 'group') {
@@ -4898,13 +5219,16 @@ var Core;
             return new LessThanExpression(Core.BinaryExpression.jsToValue(parameters));
         };
         LessThanExpression.prototype.toString = function () {
-            return this.lhs.toString() + ' < ' + this.rhs.toString();
+            return "" + this.lhs.toString() + " < " + this.rhs.toString();
         };
-        LessThanExpression.prototype._makeFn = function (lhsFn, rhsFn) {
+        LessThanExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
             return function (d) { return lhsFn(d) < rhsFn(d); };
         };
-        LessThanExpression.prototype._makeFnJS = function (lhsFnJS, rhsFnJS) {
-            return '(' + lhsFnJS + '<' + rhsFnJS + ')';
+        LessThanExpression.prototype._getJSExpressionHelper = function (lhsFnJS, rhsFnJS) {
+            return "(" + lhsFnJS + "<" + rhsFnJS + ")";
+        };
+        LessThanExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
+            return "(" + lhsSQL + "<" + rhsSQL + ")";
         };
         LessThanExpression.prototype.mergeAnd = function (exp) {
             var expLeftHanded;
@@ -5241,13 +5565,16 @@ var Core;
             return new LessThanOrEqualExpression(Core.BinaryExpression.jsToValue(parameters));
         };
         LessThanOrEqualExpression.prototype.toString = function () {
-            return this.lhs.toString() + ' <= ' + this.rhs.toString();
+            return "" + this.lhs.toString() + " <= " + this.rhs.toString();
         };
-        LessThanOrEqualExpression.prototype._makeFn = function (lhsFn, rhsFn) {
+        LessThanOrEqualExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
             return function (d) { return lhsFn(d) <= rhsFn(d); };
         };
-        LessThanOrEqualExpression.prototype._makeFnJS = function (lhsFnJS, rhsFnJS) {
-            return '(' + lhsFnJS + '<=' + rhsFnJS + ')';
+        LessThanOrEqualExpression.prototype._getJSExpressionHelper = function (lhsFnJS, rhsFnJS) {
+            return "(" + lhsFnJS + "<=" + rhsFnJS + ")";
+        };
+        LessThanOrEqualExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
+            return "(" + lhsSQL + "<=" + rhsSQL + ")";
         };
         LessThanOrEqualExpression.prototype.mergeAnd = function (exp) {
             var expLeftHanded;
@@ -5469,6 +5796,35 @@ var Core;
                 return String(value);
             }
         };
+        LiteralExpression.prototype.getFn = function () {
+            var value = this.value;
+            return function () { return value; };
+        };
+        LiteralExpression.prototype.getJSExpression = function () {
+            return JSON.stringify(this.value);
+        };
+        LiteralExpression.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            var value = this.value;
+            switch (this.type) {
+                case 'STRING':
+                    return JSON.stringify(value);
+                case 'BOOLEAN':
+                    return String(value).toUpperCase();
+                case 'NUMBER':
+                    return String(value);
+                case 'NUMBER_RANGE':
+                    return String(value.start) + '/' + String(value.end);
+                case 'TIME':
+                    return Core.dateToSQL(value);
+                case 'TIME_RANGE':
+                    return Core.dateToSQL(value.start) + '/' + Core.dateToSQL(value.end);
+                case 'SET/STRING':
+                    return '(' + value.getValues().map(function (v) { return JSON.stringify(v); }).join(',') + ')';
+                default:
+                    throw new Error("currently unsupported type: " + this.type);
+            }
+        };
         LiteralExpression.prototype.equals = function (other) {
             if (!_super.prototype.equals.call(this, other) || this.type !== other.type)
                 return false;
@@ -5482,10 +5838,6 @@ var Core;
         LiteralExpression.prototype.getReferences = function () {
             return [];
         };
-        LiteralExpression.prototype.getFn = function () {
-            var value = this.value;
-            return function () { return value; };
-        };
         LiteralExpression.prototype.every = function (iter) {
             return iter(this) !== false;
         };
@@ -5494,9 +5846,6 @@ var Core;
         };
         LiteralExpression.prototype.isRemote = function () {
             return this.value instanceof Core.Dataset && this.value.source !== 'native';
-        };
-        LiteralExpression.prototype._getRawFnJS = function () {
-            return JSON.stringify(this.value);
         };
         LiteralExpression.prototype.mergeAnd = function (exp) {
             if (this.value === false) {
@@ -5578,12 +5927,15 @@ var Core;
         MatchExpression.prototype.equals = function (other) {
             return _super.prototype.equals.call(this, other) && this.regexp === other.regexp;
         };
-        MatchExpression.prototype._makeFn = function (operandFn) {
+        MatchExpression.prototype._getFnHelper = function (operandFn) {
             var re = new RegExp(this.regexp);
             return function (d) { return re.test(operandFn(d)); };
         };
-        MatchExpression.prototype._makeFnJS = function (operandFnJS) {
+        MatchExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
             return "/" + this.regexp + "/.test(" + operandFnJS + ")";
+        };
+        MatchExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
+            return "" + operandSQL + " REGEXP '" + this.regexp + "'";
         };
         return MatchExpression;
     })(Core.UnaryExpression);
@@ -5606,7 +5958,7 @@ var Core;
         MultiplyExpression.prototype.toString = function () {
             return '(' + this.operands.map(function (operand) { return operand.toString(); }).join(' * ') + ')';
         };
-        MultiplyExpression.prototype._makeFn = function (operandFns) {
+        MultiplyExpression.prototype._getFnHelper = function (operandFns) {
             return function (d) {
                 var res = 1;
                 for (var i = 0; i < operandFns.length; i++) {
@@ -5615,8 +5967,11 @@ var Core;
                 return res;
             };
         };
-        MultiplyExpression.prototype._makeFnJS = function (operandFnJSs) {
-            return '(' + operandFnJSs.join('*') + ')';
+        MultiplyExpression.prototype._getJSExpressionHelper = function (operandJSExpressions) {
+            return '(' + operandJSExpressions.join('*') + ')';
+        };
+        MultiplyExpression.prototype._getSQLHelper = function (operandSQLs, dialect, minimal) {
+            return '(' + operandSQLs.join('*') + ')';
         };
         return MultiplyExpression;
     })(Core.NaryExpression);
@@ -5638,11 +5993,14 @@ var Core;
         NegateExpression.prototype.toString = function () {
             return this.operand.toString() + '.negate()';
         };
-        NegateExpression.prototype._makeFn = function (operandFn) {
+        NegateExpression.prototype._getFnHelper = function (operandFn) {
             return function (d) { return -operandFn(d); };
         };
-        NegateExpression.prototype._makeFnJS = function (operandFnJS) {
+        NegateExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
             return "-(" + operandFnJS + ")";
+        };
+        NegateExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
+            return "-(" + operandSQL + ")";
         };
         NegateExpression.prototype._specialSimplify = function (simpleOperand) {
             if (simpleOperand instanceof NegateExpression) {
@@ -5671,11 +6029,14 @@ var Core;
         NotExpression.prototype.toString = function () {
             return this.operand.toString() + '.not()';
         };
-        NotExpression.prototype._makeFn = function (operandFn) {
+        NotExpression.prototype._getFnHelper = function (operandFn) {
             return function (d) { return !operandFn(d); };
         };
-        NotExpression.prototype._makeFnJS = function (operandFnJS) {
+        NotExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
             return "!(" + operandFnJS + ")";
+        };
+        NotExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
+            return 'NOT(' + operandSQL + ')';
         };
         NotExpression.prototype._specialSimplify = function (simpleOperand) {
             if (simpleOperand instanceof NotExpression) {
@@ -5705,9 +6066,6 @@ var Core;
             value.offset = parameters.offset;
             return new NumberBucketExpression(value);
         };
-        NumberBucketExpression.prototype.toString = function () {
-            return this.operand.toString() + '.numberBucket(' + this.size + (this.offset ? (', ' + this.offset) : '') + ')';
-        };
         NumberBucketExpression.prototype.valueOf = function () {
             var value = _super.prototype.valueOf.call(this);
             value.size = this.size;
@@ -5721,10 +6079,13 @@ var Core;
                 js.offset = this.offset;
             return js;
         };
+        NumberBucketExpression.prototype.toString = function () {
+            return this.operand.toString() + '.numberBucket(' + this.size + (this.offset ? (', ' + this.offset) : '') + ')';
+        };
         NumberBucketExpression.prototype.equals = function (other) {
             return _super.prototype.equals.call(this, other) && this.size === other.size && this.offset === other.offset;
         };
-        NumberBucketExpression.prototype._makeFn = function (operandFn) {
+        NumberBucketExpression.prototype._getFnHelper = function (operandFn) {
             var size = this.size;
             var offset = this.offset;
             return function (d) {
@@ -5734,8 +6095,11 @@ var Core;
                 return Core.NumberRange.fromNumber(num, size, offset);
             };
         };
-        NumberBucketExpression.prototype._makeFnJS = function (operandFnJS) {
+        NumberBucketExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
             throw new Error("implement me");
+        };
+        NumberBucketExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
+            return Legacy.driverUtil.continuousFloorExpression(operandSQL, "FLOOR", this.size, this.offset);
         };
         return NumberBucketExpression;
     })(Core.UnaryExpression);
@@ -5773,7 +6137,22 @@ var Core;
             });
         };
         OrExpression.prototype.toString = function () {
-            return '(' + this.operands.map(function (operand) { return operand.toString(); }).join('or') + ')';
+            return '(' + this.operands.map(function (operand) { return operand.toString(); }).join(' or ') + ')';
+        };
+        OrExpression.prototype._getFnHelper = function (operandFns) {
+            return function (d) {
+                var res = false;
+                for (var i = 0; i < operandFns.length; i++) {
+                    res = res || operandFns[i](d);
+                }
+                return res;
+            };
+        };
+        OrExpression.prototype._getJSExpressionHelper = function (operandJSExpressions) {
+            return '(' + operandJSExpressions.join('||') + ')';
+        };
+        OrExpression.prototype._getSQLHelper = function (operandSQLs, dialect, minimal) {
+            return '(' + operandSQLs.join(' OR ') + ')';
         };
         OrExpression.prototype.simplify = function () {
             if (this.simple)
@@ -5835,12 +6214,6 @@ var Core;
                 return new OrExpression(simpleValue);
             }
         };
-        OrExpression.prototype._makeFn = function (operandFns) {
-            throw new Error("should never be called directly");
-        };
-        OrExpression.prototype._makeFnJS = function (operandFnJSs) {
-            throw new Error("should never be called directly");
-        };
         return OrExpression;
     })(Core.NaryExpression);
     Core.OrExpression = OrExpression;
@@ -5861,11 +6234,14 @@ var Core;
         ReciprocateExpression.prototype.toString = function () {
             return this.operand.toString() + '.reciprocate()';
         };
-        ReciprocateExpression.prototype._makeFn = function (operandFn) {
+        ReciprocateExpression.prototype._getFnHelper = function (operandFn) {
             return function (d) { return 1 / operandFn(d); };
         };
-        ReciprocateExpression.prototype._makeFnJS = function (operandFnJS) {
+        ReciprocateExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
             return "1/(" + operandFnJS + ")";
+        };
+        ReciprocateExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
+            return "1/(" + operandSQL + ")";
         };
         ReciprocateExpression.prototype._specialSimplify = function (simpleOperand) {
             if (simpleOperand instanceof ReciprocateExpression) {
@@ -5949,15 +6325,6 @@ var Core;
         RefExpression.prototype.toString = function () {
             return '$' + this.generations + this.name + (this.type ? ':' + this.type : '');
         };
-        RefExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.name === other.name && this.generations === other.generations;
-        };
-        RefExpression.prototype.isRemote = function () {
-            return Boolean(this.remote && this.remote.length);
-        };
-        RefExpression.prototype.getReferences = function () {
-            return [this.name];
-        };
         RefExpression.prototype.getFn = function () {
             if (this.generations.length)
                 throw new Error("can not call getFn on unresolved expression");
@@ -5974,10 +6341,25 @@ var Core;
                 }
             };
         };
-        RefExpression.prototype._getRawFnJS = function () {
+        RefExpression.prototype.getJSExpression = function () {
             if (this.generations.length)
-                throw new Error("can not call getRawFnJS on unresolved expression");
+                throw new Error("can not call getJSExpression on unresolved expression");
             return 'd.' + this.name;
+        };
+        RefExpression.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            if (this.generations.length)
+                throw new Error("can not call getSQL on unresolved expression");
+            return '`' + this.name + '`';
+        };
+        RefExpression.prototype.equals = function (other) {
+            return _super.prototype.equals.call(this, other) && this.name === other.name && this.generations === other.generations;
+        };
+        RefExpression.prototype.isRemote = function () {
+            return Boolean(this.remote && this.remote.length);
+        };
+        RefExpression.prototype.getReferences = function () {
+            return [this.name];
         };
         RefExpression.prototype.every = function (iter) {
             return iter(this) !== false;
@@ -6037,6 +6419,15 @@ var Core;
 })(Core || (Core = {}));
 var Core;
 (function (Core) {
+    var timeBucketing = {
+        "PT1S": "%Y-%m-%dT%H:%i:%SZ",
+        "PT1M": "%Y-%m-%dT%H:%i:00Z",
+        "PT1H": "%Y-%m-%dT%H:00:00Z",
+        "P1D": "%Y-%m-%dT00:00:00Z",
+        "P1W": "%Y-%m-%dT00:00:00Z",
+        "P1M": "%Y-%m-00T00:00:00Z",
+        "P1Y": "%Y-00-00T00:00:00Z"
+    };
     var TimeBucketExpression = (function (_super) {
         __extends(TimeBucketExpression, _super);
         function TimeBucketExpression(parameters) {
@@ -6058,9 +6449,6 @@ var Core;
             value.timezone = Core.Timezone.fromJS(parameters.timezone);
             return new TimeBucketExpression(value);
         };
-        TimeBucketExpression.prototype.toString = function () {
-            return this.operand.toString() + '.timeBucket(' + this.duration.toString() + ', ' + this.timezone.toString() + ')';
-        };
         TimeBucketExpression.prototype.valueOf = function () {
             var value = _super.prototype.valueOf.call(this);
             value.duration = this.duration;
@@ -6073,10 +6461,13 @@ var Core;
             js.timezone = this.timezone.toJS();
             return js;
         };
+        TimeBucketExpression.prototype.toString = function () {
+            return this.operand.toString() + '.timeBucket(' + this.duration.toString() + ', ' + this.timezone.toString() + ')';
+        };
         TimeBucketExpression.prototype.equals = function (other) {
             return _super.prototype.equals.call(this, other) && this.duration.equals(other.duration) && this.timezone.equals(other.timezone);
         };
-        TimeBucketExpression.prototype._makeFn = function (operandFn) {
+        TimeBucketExpression.prototype._getFnHelper = function (operandFn) {
             var duration = this.duration;
             var timezone = this.timezone;
             return function (d) {
@@ -6086,8 +6477,19 @@ var Core;
                 return Core.TimeRange.fromDate(date, duration, timezone);
             };
         };
-        TimeBucketExpression.prototype._makeFnJS = function (operandFnJS) {
+        TimeBucketExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
             throw new Error("implement me");
+        };
+        TimeBucketExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
+            var bucketFormat = timeBucketing[this.duration.toString()];
+            if (!bucketFormat)
+                throw new Error("unsupported duration '" + this.duration + "'");
+            var bucketTimezone = this.timezone.toString();
+            var expression = operandSQL;
+            if (bucketTimezone !== "Etc/UTC") {
+                expression = "CONVERT_TZ(" + expression + ", '+0:00', '" + bucketTimezone + "')";
+            }
+            return "DATE_FORMAT(" + expression + ", '" + bucketFormat + "')";
         };
         return TimeBucketExpression;
     })(Core.UnaryExpression);
@@ -6113,9 +6515,6 @@ var Core;
             value.duration = Core.Duration.fromJS(parameters.duration);
             return new TimeOffsetExpression(value);
         };
-        TimeOffsetExpression.prototype.toString = function () {
-            return this.operand.toString() + '.timeOffset(' + this.duration.toString() + ')';
-        };
         TimeOffsetExpression.prototype.valueOf = function () {
             var value = _super.prototype.valueOf.call(this);
             value.duration = this.duration;
@@ -6126,10 +6525,13 @@ var Core;
             js.duration = this.duration.toJS();
             return js;
         };
+        TimeOffsetExpression.prototype.toString = function () {
+            return this.operand.toString() + '.timeOffset(' + this.duration.toString() + ')';
+        };
         TimeOffsetExpression.prototype.equals = function (other) {
             return _super.prototype.equals.call(this, other) && this.duration.equals(other.duration);
         };
-        TimeOffsetExpression.prototype._makeFn = function (operandFn) {
+        TimeOffsetExpression.prototype._getFnHelper = function (operandFn) {
             var duration = this.duration;
             return function (d) {
                 var date = operandFn(d);
@@ -6138,8 +6540,11 @@ var Core;
                 return duration.move(date, Core.Timezone.UTC(), 1);
             };
         };
-        TimeOffsetExpression.prototype._makeFnJS = function (operandFnJS) {
+        TimeOffsetExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
             throw new Error("implement me");
+        };
+        TimeOffsetExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
+            return dialect.offsetTimeExpression(operandSQL, this.duration);
         };
         return TimeOffsetExpression;
     })(Core.UnaryExpression);
@@ -6242,6 +6647,10 @@ var Core;
         Action.prototype.equals = function (other) {
             return Action.isAction(other) && this.action === other.action;
         };
+        Action.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            throw new Error('can not call this directly');
+        };
         Action.prototype.getComplexity = function () {
             return 1 + (this.expression ? this.expression.getComplexity() : 0);
         };
@@ -6303,10 +6712,14 @@ var Core;
             return js;
         };
         ApplyAction.prototype.toString = function () {
-            return ".apply('" + this.name + "', " + this.expression.toString() + ')';
+            return ".apply(" + this.name + ", " + this.expression.toString() + ")";
         };
         ApplyAction.prototype.equals = function (other) {
             return _super.prototype.equals.call(this, other) && this.name === other.name;
+        };
+        ApplyAction.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            return "" + this.expression.getSQL(dialect, minimal) + " AS '" + this.name + "'";
         };
         return ApplyAction;
     })(Core.Action);
@@ -6346,6 +6759,10 @@ var Core;
         DefAction.prototype.equals = function (other) {
             return _super.prototype.equals.call(this, other) && this.name === other.name;
         };
+        DefAction.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            return "" + this.expression.toString() + " AS \"" + this.name + "\"";
+        };
         return DefAction;
     })(Core.Action);
     Core.DefAction = DefAction;
@@ -6372,6 +6789,10 @@ var Core;
         };
         FilterAction.prototype.toString = function () {
             return '.filter(' + this.expression.toString() + ')';
+        };
+        FilterAction.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            return "WHERE " + this.expression.toString();
         };
         return FilterAction;
     })(Core.Action);
@@ -6409,6 +6830,10 @@ var Core;
         };
         LimitAction.prototype.equals = function (other) {
             return _super.prototype.equals.call(this, other) && this.limit === other.limit;
+        };
+        LimitAction.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            return "LIMIT " + this.limit;
         };
         return LimitAction;
     })(Core.Action);
@@ -6453,6 +6878,11 @@ var Core;
         };
         SortAction.prototype.equals = function (other) {
             return _super.prototype.equals.call(this, other) && this.direction === other.direction;
+        };
+        SortAction.prototype.getSQL = function (dialect, minimal) {
+            if (minimal === void 0) { minimal = false; }
+            var dir = this.direction === 'descending' ? 'DESC' : 'ASC';
+            return "ORDER BY " + this.expression.getSQL(dialect, minimal) + " " + dir;
         };
         SortAction.prototype.refName = function () {
             var expression = this.expression;
@@ -13502,8 +13932,9 @@ var Legacy;
                         throw new Error("unsupported timePeriod period '" + split.period + "'");
                     }
                     var bucketTimezone = split.timezone;
+                    var sqlAttribute;
                     if (bucketTimezone.valueOf() === "Etc/UTC") {
-                        var sqlAttribute = this.escapeAttribute(split.attribute);
+                        sqlAttribute = this.escapeAttribute(split.attribute);
                     }
                     else {
                         sqlAttribute = "CONVERT_TZ(" + (this.escapeAttribute(split.attribute)) + ", '+0:00', " + bucketTimezone + ")";
