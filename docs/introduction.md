@@ -33,7 +33,7 @@ Making a query in facet.js consists of creating an expression and then evaluatin
 
 There are a number of ways to create expressions:
 
-- by using the ```facet()``` helper method
+- by using the ```$()``` helper method
 - by parsing an expression string using the built-in parser
 - by composing them manually using the Expression sub-class objects
 - by constructing the appropriate JSON and then deserializing it into an Expression
@@ -67,18 +67,18 @@ Lear more about [data types here](./datatypes).
 Here is an example of a simple facet.js query that illustrates the different ways by which expressions can be created:
 
 ```javascript
-var ex0 = facet() // Create an empty singleton dataset literal [{}]
+var ex0 = $() // Create an empty singleton dataset literal [{}]
   // 1 is converted into a literal
   .def("one", 1)
 
-  // 2 is converted into a literal via the facet() function
-  .def("two", facet(2))
+  // 2 is converted into a literal via the $() function
+  .def("two", $(2))
 
   // The string "$one + $two" is parsed into an expression
   .apply("three", "$one + $two")
 
   // The method chaining approach is used to make an expression
-  .apply("four", facet("three").add(1))
+  .apply("four", $("three").add(1))
 
   // Simple JSON of an expression is used to define an expression
   .apply("five", {
@@ -110,7 +110,7 @@ Calling ```ex0.compute()``` will return a Q promise that will resolve to:
 
 This example employees three functions:
 
-* `facet()` creates a dataset with one empty datum inside of it. This is the base of most facet operations.
+* `$()` creates a dataset with one empty datum inside of it. This is the base of most facet operations.
 
 * `apply(name, expression)` evaluates the given `expression` for every element of the dataset and saves the result as `name`.
 
@@ -125,7 +125,7 @@ This example will use Druid as the data store.
 
 ```javascript
 // Get the druid requester (which is a node specific module)
-var druidRequester = require('facetjs-druid-requester').druidRequester;
+var druidRequesterFactory = require('facetjs-druid-requester').druidRequesterFactory;
 
 var facet = require('facet');
 var Dataset = facet.core.Dataset;
@@ -134,7 +134,7 @@ var Dataset = facet.core.Dataset;
 Next, the druid connection needs to be configured:
 
 ```javascript
-var druidPass = druidRequester({
+var druidRequester = druidRequesterFactory({
   host: '10.153.211.100' // Where ever your Druid may be
 });
 
@@ -144,7 +144,7 @@ var wikiDataset = Dataset.fromJS({
   timeAttribute: 'time',  // Druid's anonymous time attribute will be called 'time'
   forceInterval: true,  // Do not issue queries on unbounded time (no interval set)
   approximate: true,  // Allow approximate results, Druid is not as awesome of you stick to the exact stuff
-  requester: druidPass
+  requester: druidRequester
 });
 ```
 
@@ -155,17 +155,17 @@ var context = {
   wiki: wikiDataset
 };
 
-var ex = facet()
+var ex = $()
   // Define the dataset in context with a filter on time and language
   .def("wiki",
-    facet('wiki').filter(facet("time").in({
+    $('wiki').filter($("time").in({
       start: new Date("2013-02-26T00:00:00Z"),
       end: new Date("2013-02-27T00:00:00Z")
-    }).and(facet('language').is('en')))
+    }).and($('language').is('en')))
   )
 
   // Calculate count
-  .apply('Count', facet('wiki').count())
+  .apply('Count', $('wiki').count())
 
   // Calculate the total of the `added` attribute
   .apply('TotalAdded', '$wiki.sum($added)');
@@ -201,18 +201,18 @@ var context = {
   wiki: wikiDataset
 };
 
-var ex = facet()
+var ex = $()
   .def("wiki",
-    facet('wiki').filter(facet("time").in({
+    $('wiki').filter($("time").in({
       start: new Date("2013-02-26T00:00:00Z"),
       end: new Date("2013-02-27T00:00:00Z")
     }))
   )
-  .apply('Count', facet('wiki').count())
+  .apply('Count', $('wiki').count())
   .apply('TotalAdded', '$wiki.sum($added)')
   .apply('Pages',
-    facet('wiki').split('$page', 'Page')
-      .apply('Count', facet('wiki').count())
+    $('wiki').split('$page', 'Page')
+      .apply('Count', $('wiki').count())
       .sort('$Count', 'descending')
       .limit(6)
   );

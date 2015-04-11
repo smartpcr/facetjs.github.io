@@ -7,9 +7,9 @@ var outputField = d3.select('#output');
 var errorField = d3.select('#error');
 
 var defaultQuery = [
-  "facet()",
+  "$()",
   "  .def('diamonds',",
-  "    facet('diamonds').filter(facet('time').in({",
+  "    $('diamonds').filter($('time').in({",
   "      start: new Date('2015-03-12T00:00:00'),",
   "      end: new Date('2015-03-19T00:00:00')",
   "    }))",
@@ -17,9 +17,10 @@ var defaultQuery = [
   "  .apply('Count', '$diamonds.count()')",
   "  .apply('TotalPrice', '$diamonds.sum($price)')",
   "  .apply('PriceAndTax', '$diamonds.sum($price) + $diamonds.sum($tax)')",
+  "  .apply('PriceGoodCut', '$diamonds.filter($cut = \"good\").sum($price)')",
   "  .apply('Cuts',",
-  "    facet('diamonds').split('$cut', 'Cut')",
-  "      .apply('Count', facet('diamonds').count())",
+  "    $('diamonds').split('$cut', 'Cut')",
+  "      .apply('Count', $('diamonds').count())",
   "      .sort('$Count', 'descending')",
   "      .limit(2)",
   "  )"

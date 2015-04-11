@@ -23,7 +23,7 @@ Here are facet queries the would translate directly to single Druid queries.
 *ToDo: add description*
 
 ```javascript
-facet()
+$()
   .apply('maxTime', '$wiki.max($timestamp)')
   .apply('minTime', '$wiki.min($timestamp)')
 ```
@@ -33,9 +33,9 @@ facet()
 *ToDo: add description*
 
 ```javascript
-facet()
+$()
   .apply('TimeByHour'
-    facet('wiki').split(facet('timestamp').numberBucket('PT1H', 'Etc/UTC'), "Time")
+    $('wiki').split($('timestamp').numberBucket('PT1H', 'Etc/UTC'), "Time")
       .apply('Count', '$wiki.count()')
       .apply('Added', '$wiki.sum($added)')
       .sort('Time', 'ascending')
@@ -47,9 +47,9 @@ facet()
 *ToDo: add description*
 
 ```javascript
-facet()
+$()
   .apply('Pages'
-    facet('wiki').split('$page', "Page")
+    $('wiki').split('$page', "Page")
       .apply('Count', '$wiki.count()')
       .apply('Added', '$wiki.sum($added)')
       .sort('Count', 'descending')
