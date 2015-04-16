@@ -32,6 +32,12 @@ function deduplicateSort(a) {
 function checkArrayEquality(a, b) {
     return a.length === b.length && a.every(function (item, i) { return (item === b[i]); });
 }
+function smaller(a, b) {
+    return a < b ? a : b;
+}
+function larger(a, b) {
+    return a < b ? b : a;
+}
 var Facet;
 (function (Facet) {
     Facet.expressionParser = require("../parser/expression");
@@ -63,7 +69,23 @@ var Facet;
     var SQLDialect = (function () {
         function SQLDialect() {
         }
-        SQLDialect.prototype.offsetTimeExpression = function (expression, duration) {
+        SQLDialect.prototype.inExpression = function (operand, start, end, bounds) {
+            var startSQL = null;
+            if (start !== null) {
+                startSQL = start + (bounds[0] === '[' ? '<=' : '<') + operand;
+            }
+            var endSQL = null;
+            if (end !== null) {
+                endSQL = operand + (bounds[1] === ']' ? '<=' : '<') + end;
+            }
+            if (startSQL) {
+                return endSQL ? "(" + startSQL + " AND " + endSQL + ")" : startSQL;
+            }
+            else {
+                return endSQL ? endSQL : 'TRUE';
+            }
+        };
+        SQLDialect.prototype.offsetTimeExpression = function (operand, duration) {
             throw new Error('Must implement offsetTimeExpression');
         };
         return SQLDialect;
@@ -74,21 +96,21 @@ var Facet;
         function MySQLDialect() {
             _super.call(this);
         }
-        MySQLDialect.prototype.offsetTimeExpression = function (expression, duration) {
+        MySQLDialect.prototype.offsetTimeExpression = function (operand, duration) {
             var sqlFn = "DATE_ADD(";
             var spans = duration.valueOf();
             if (spans.week) {
-                return sqlFn + expression + ", INTERVAL " + String(spans.week) + ' WEEK)';
+                return sqlFn + operand + ", INTERVAL " + String(spans.week) + ' WEEK)';
             }
             if (spans.year || spans.month) {
                 var expr = String(spans.year || 0) + "-" + String(spans.month || 0);
-                expression = sqlFn + expression + ", INTERVAL '" + expr + "' YEAR_MONTH)";
+                operand = sqlFn + operand + ", INTERVAL '" + expr + "' YEAR_MONTH)";
             }
             if (spans.day || spans.hour || spans.minute || spans.second) {
                 var expr = String(spans.day || 0) + " " + [spans.hour || 0, spans.minute || 0, spans.second || 0].join(':');
-                expression = sqlFn + expression + ", INTERVAL '" + expr + "' DAY_SECOND)";
+                operand = sqlFn + operand + ", INTERVAL '" + expr + "' DAY_SECOND)";
             }
-            return expression;
+            return operand;
         };
         return MySQLDialect;
     })(SQLDialect);
@@ -96,7 +118,7 @@ var Facet;
 })(Facet || (Facet = {}));
 var Facet;
 (function (Facet) {
-    function getType(value) {
+    function getValueType(value) {
         var typeofValue = typeof value;
         if (typeofValue === 'object') {
             if (value === null) {
@@ -106,8 +128,8 @@ var Facet;
                 return 'TIME';
             }
             else {
-                var type = value.constructor.type;
-                if (!type) {
+                var ctrType = value.constructor.type;
+                if (!ctrType) {
                     if (Facet.Expression.isExpression(value)) {
                         throw new Error("expression used as datum value " + value.toString());
                     }
@@ -115,10 +137,9 @@ var Facet;
                         throw new Error("can not have an object without a type: " + JSON.stringify(value));
                     }
                 }
-                if (type === 'SET') {
-                    type += '/' + value.setType;
-                }
-                return type;
+                if (ctrType === 'SET')
+                    ctrType += '/' + value.setType;
+                return ctrType;
             }
         }
         else {
@@ -128,14 +149,14 @@ var Facet;
             return typeofValue.toUpperCase();
         }
     }
-    Facet.getType = getType;
+    Facet.getValueType = getValueType;
     function getFullType(value) {
-        var myType = getType(value);
+        var myType = getValueType(value);
         return myType === 'DATASET' ? value.getFullType() : { type: myType };
     }
     Facet.getFullType = getFullType;
-    function valueFromJS(v, type) {
-        if (type === void 0) { type = null; }
+    function valueFromJS(v, typeOverride) {
+        if (typeOverride === void 0) { typeOverride = null; }
         if (v == null) {
             return null;
         }
@@ -146,7 +167,7 @@ var Facet;
             });
         }
         else if (typeof v === 'object') {
-            switch (type || v.type) {
+            switch (typeOverride || v.type) {
                 case 'NUMBER':
                     var n = Number(v.value);
                     if (isNaN(n))
@@ -155,7 +176,7 @@ var Facet;
                 case 'NUMBER_RANGE':
                     return Facet.NumberRange.fromJS(v);
                 case 'TIME':
-                    return type ? v : new Date(v.value);
+                    return typeOverride ? v : new Date(v.value);
                 case 'TIME_RANGE':
                     return Facet.TimeRange.fromJS(v);
                 case 'SHAPE':
@@ -171,7 +192,7 @@ var Facet;
                     }
             }
         }
-        else if (typeof v === 'string' && type === 'TIME') {
+        else if (typeof v === 'string' && typeOverride === 'TIME') {
             return new Date(v);
         }
         return v;
@@ -223,10 +244,19 @@ var Facet;
         return v;
     }
     Facet.valueToJSInlineType = valueToJSInlineType;
-    function dateToSQL(date) {
-        return date.toISOString().replace("T", " ").replace(/\.\d\d\dZ$/, "").replace(" 00:00:00", "");
+    function numberToSQL(num) {
+        if (num === null)
+            return null;
+        return String(num);
     }
-    Facet.dateToSQL = dateToSQL;
+    Facet.numberToSQL = numberToSQL;
+    function timeToSQL(date) {
+        if (!date)
+            return null;
+        var str = date.toISOString().replace("T", " ").replace(/\.\d\d\dZ$/, "").replace(" 00:00:00", "");
+        return "'" + str + "'";
+    }
+    Facet.timeToSQL = timeToSQL;
     function datumHasRemote(datum) {
         for (var applyName in datum) {
             var applyValue = datum[applyName];
@@ -1470,81 +1500,265 @@ var Facet;
 })(Facet || (Facet = {}));
 var Facet;
 (function (Facet) {
-    function numberToJS(n) {
-        return isFinite(n) ? n : String(n);
+    var BOUNDS_REG_EXP = /^[\[(][\])]$/;
+    var Range = (function () {
+        function Range(start, end, bounds) {
+            if (bounds) {
+                if (!BOUNDS_REG_EXP.test(bounds)) {
+                    throw new Error("invalid bounds " + bounds);
+                }
+            }
+            else {
+                bounds = Range.DEFAULT_BOUNDS;
+            }
+            if (start !== null && end !== null && this._endpointEqual(start, end)) {
+                if (bounds !== '[]') {
+                    start = end = this._zeroEndpoint();
+                }
+                if (bounds === '(]' || bounds === '()')
+                    this.bounds = '[)';
+            }
+            else {
+                if (start !== null && end !== null && end < start) {
+                    throw new Error('must have start <= end');
+                }
+                if (start === null && bounds[0] === '[') {
+                    bounds = '(' + bounds[1];
+                }
+                if (end === null && bounds[1] === ']') {
+                    bounds = bounds[0] + ')';
+                }
+            }
+            this.start = start;
+            this.end = end;
+            this.bounds = bounds;
+        }
+        Range.fromJS = function (parameters) {
+            if (typeof parameters.start === 'number' || typeof parameters.end === 'number') {
+                return Facet.NumberRange.fromJS(parameters);
+            }
+            else {
+                return Facet.TimeRange.fromJS(parameters);
+            }
+        };
+        Range.prototype._zeroEndpoint = function () {
+            return 0;
+        };
+        Range.prototype._endpointEqual = function (a, b) {
+            return a === b;
+        };
+        Range.prototype._endpointToString = function (a) {
+            return String(a);
+        };
+        Range.prototype._equalsHelper = function (other) {
+            return Boolean(other) && this.bounds === other.bounds && this._endpointEqual(this.start, other.start) && this._endpointEqual(this.end, other.end);
+        };
+        Range.prototype.toString = function () {
+            var bounds = this.bounds;
+            return bounds[0] + this._endpointToString(this.start) + ',' + this._endpointToString(this.end) + bounds[1];
+        };
+        Range.prototype.openStart = function () {
+            return this.bounds[0] === '(';
+        };
+        Range.prototype.openEnd = function () {
+            return this.bounds[1] === ')';
+        };
+        Range.prototype.empty = function () {
+            return this._endpointEqual(this.start, this.end) && this.bounds === '[)';
+        };
+        Range.prototype.degenerate = function () {
+            return this._endpointEqual(this.start, this.end) && this.bounds === '[]';
+        };
+        Range.prototype.contains = function (val) {
+            if (val === null)
+                return false;
+            var start = this.start;
+            var end = this.end;
+            var bounds = this.bounds;
+            if (bounds[0] === '[') {
+                if (val < start)
+                    return false;
+            }
+            else {
+                if (start !== null && val <= start)
+                    return false;
+            }
+            if (bounds[1] === ']') {
+                if (end < val)
+                    return false;
+            }
+            else {
+                if (end !== null && end <= val)
+                    return false;
+            }
+            return true;
+        };
+        Range.prototype.intersects = function (other) {
+            return this.contains(other.start) || this.contains(other.end) || other.contains(this.start) || other.contains(this.end) || this._equalsHelper(other);
+        };
+        Range.prototype.adjacent = function (other) {
+            return (this._endpointEqual(this.end, other.start) && this.openEnd() !== other.openStart()) || (this._endpointEqual(this.start, other.end) && this.openStart() !== other.openEnd());
+        };
+        Range.prototype.mergeable = function (other) {
+            return this.intersects(other) || this.adjacent(other);
+        };
+        Range.prototype.union = function (other) {
+            if (!this.mergeable(other))
+                return null;
+            var thisStart = this.start;
+            var thisEnd = this.end;
+            var otherStart = other.start;
+            var otherEnd = other.end;
+            var start;
+            var startBound;
+            if (thisStart === null || otherStart === null) {
+                start = null;
+                startBound = '(';
+            }
+            else if (thisStart < otherStart) {
+                start = thisStart;
+                startBound = this.bounds[0];
+            }
+            else {
+                start = otherStart;
+                startBound = other.bounds[0];
+            }
+            var end;
+            var endBound;
+            if (thisEnd === null || otherEnd === null) {
+                end = null;
+                endBound = ')';
+            }
+            else if (thisEnd < otherEnd) {
+                end = otherEnd;
+                endBound = other.bounds[1];
+            }
+            else {
+                end = thisEnd;
+                endBound = this.bounds[1];
+            }
+            return new this.constructor({ start: start, end: end, bounds: startBound + endBound });
+        };
+        Range.prototype.intersect = function (other) {
+            if (!this.mergeable(other))
+                return null;
+            var thisStart = this.start;
+            var thisEnd = this.end;
+            var otherStart = other.start;
+            var otherEnd = other.end;
+            var start;
+            var startBound;
+            if (thisStart === null || otherStart === null) {
+                if (otherStart === null) {
+                    start = thisStart;
+                    startBound = this.bounds[0];
+                }
+                else {
+                    start = otherStart;
+                    startBound = other.bounds[0];
+                }
+            }
+            else if (otherStart < thisStart) {
+                start = thisStart;
+                startBound = this.bounds[0];
+            }
+            else {
+                start = otherStart;
+                startBound = other.bounds[0];
+            }
+            var end;
+            var endBound;
+            if (thisEnd === null || otherEnd === null) {
+                if (thisEnd == null) {
+                    end = otherEnd;
+                    endBound = other.bounds[1];
+                }
+                else {
+                    end = thisEnd;
+                    endBound = this.bounds[1];
+                }
+            }
+            else if (otherEnd < thisEnd) {
+                end = otherEnd;
+                endBound = other.bounds[1];
+            }
+            else {
+                end = thisEnd;
+                endBound = this.bounds[1];
+            }
+            return new this.constructor({ start: start, end: end, bounds: startBound + endBound });
+        };
+        Range.DEFAULT_BOUNDS = '[)';
+        return Range;
+    })();
+    Facet.Range = Range;
+})(Facet || (Facet = {}));
+var Facet;
+(function (Facet) {
+    function finiteOrNull(n) {
+        return (isNaN(n) || isFinite(n)) ? n : null;
     }
     var check;
-    var NumberRange = (function () {
+    var NumberRange = (function (_super) {
+        __extends(NumberRange, _super);
         function NumberRange(parameters) {
-            this.start = parameters.start;
-            this.end = parameters.end;
-            if (isNaN(this.start))
+            if (isNaN(parameters.start))
                 throw new TypeError('`start` must be a number');
-            if (isNaN(this.end))
+            if (isNaN(parameters.end))
                 throw new TypeError('`end` must be a number');
+            _super.call(this, parameters.start, parameters.end, parameters.bounds);
         }
         NumberRange.isNumberRange = function (candidate) {
             return Facet.isInstanceOf(candidate, NumberRange);
         };
-        NumberRange.fromNumber = function (num, size, offset) {
+        NumberRange.numberBucket = function (num, size, offset) {
             var start = Math.floor((num - offset) / size) * size + offset;
             return new NumberRange({
                 start: start,
-                end: start + size
+                end: start + size,
+                bounds: Facet.Range.DEFAULT_BOUNDS
             });
+        };
+        NumberRange.fromNumber = function (n) {
+            return new NumberRange({ start: n, end: n, bounds: '[]' });
         };
         NumberRange.fromJS = function (parameters) {
             if (typeof parameters !== "object") {
                 throw new Error("unrecognizable numberRange");
             }
+            var start = parameters.start;
+            var end = parameters.end;
             return new NumberRange({
-                start: Number(parameters.start),
-                end: Number(parameters.end)
+                start: start === null ? null : finiteOrNull(Number(start)),
+                end: end === null ? null : finiteOrNull(Number(end)),
+                bounds: parameters.bounds
             });
         };
         NumberRange.prototype.valueOf = function () {
             return {
                 start: this.start,
-                end: this.end
+                end: this.end,
+                bounds: this.bounds
             };
         };
         NumberRange.prototype.toJS = function () {
-            return {
-                start: numberToJS(this.start),
-                end: numberToJS(this.end)
+            var js = {
+                start: this.start,
+                end: this.end
             };
+            if (this.bounds !== Facet.Range.DEFAULT_BOUNDS)
+                js.bounds = this.bounds;
+            return js;
         };
         NumberRange.prototype.toJSON = function () {
             return this.toJS();
         };
-        NumberRange.prototype.toString = function () {
-            return "[" + this.start + ',' + this.end + ")";
-        };
         NumberRange.prototype.equals = function (other) {
-            return NumberRange.isNumberRange(other) && this.start === other.start && this.end === other.end;
-        };
-        NumberRange.prototype.union = function (other) {
-            if ((this.start < other.start && (this.end <= other.start)) || (other.start < this.start) && (other.end <= this.start)) {
-                return null;
-            }
-            var start = Math.min(this.start, other.start);
-            var end = Math.max(this.end, other.end);
-            return new NumberRange({ start: start, end: end });
-        };
-        NumberRange.prototype.intersect = function (other) {
-            if ((this.start < other.start && (this.end <= other.start)) || (other.start < this.start) && (other.end <= this.start)) {
-                return null;
-            }
-            var start = Math.max(this.start, other.start);
-            var end = Math.min(this.end, other.end);
-            return new NumberRange({ start: start, end: end });
-        };
-        NumberRange.prototype.contains = function (val) {
-            return this.start <= val && val < this.end;
+            return NumberRange.isNumberRange(other) && this._equalsHelper(other);
         };
         NumberRange.type = 'NUMBER_RANGE';
         return NumberRange;
-    })();
+    })(Facet.Range);
     Facet.NumberRange = NumberRange;
     check = NumberRange;
 })(Facet || (Facet = {}));
@@ -1565,27 +1779,92 @@ var Facet;
     function hashToValues(hash) {
         return Object.keys(hash).sort().map(function (k) { return hash[k]; });
     }
-    function guessSetType(thing) {
-        var typeofThing = typeof thing;
-        switch (typeofThing) {
-            case 'boolean':
-            case 'string':
-            case 'number':
-                return typeofThing.toUpperCase();
-            default:
-                if (thing.toISOString)
-                    return 'TIME';
-                throw new Error("Could not guess the setType of the set. Please specify explicit setType");
+    function unifyElements(elements) {
+        var newElements = Object.create(null);
+        for (var k in elements) {
+            var accumulator = elements[k];
+            var newElementsKeys = Object.keys(newElements);
+            for (var i = 0; i < newElementsKeys.length; i++) {
+                var newElementsKey = newElementsKeys[i];
+                var newElement = newElements[newElementsKey];
+                var unionElement = accumulator.union(newElement);
+                if (unionElement) {
+                    accumulator = unionElement;
+                    delete newElements[newElementsKey];
+                }
+            }
+            newElements[accumulator.toString()] = accumulator;
         }
+        return newElements;
     }
+    function intersectElements(elements1, elements2) {
+        var newElements = Object.create(null);
+        for (var k1 in elements1) {
+            var element1 = elements1[k1];
+            for (var k2 in elements2) {
+                var element2 = elements2[k2];
+                var intersect = element1.intersect(element2);
+                if (intersect)
+                    newElements[intersect.toString()] = intersect;
+            }
+        }
+        return newElements;
+    }
+    var typeUpgrades = {
+        'NUMBER': 'NUMBER_RANGE',
+        'TIME': 'TIME_RANGE'
+    };
     var check;
     var Set = (function () {
         function Set(parameters) {
-            this.setType = parameters.setType;
-            this.elements = parameters.elements;
+            var setType = parameters.setType;
+            this.setType = setType;
+            var elements = parameters.elements;
+            if (setType === 'NUMBER_RANGE' || setType === 'TIME_RANGE') {
+                elements = unifyElements(elements);
+            }
+            this.elements = elements;
         }
         Set.isSet = function (candidate) {
             return Facet.isInstanceOf(candidate, Set);
+        };
+        Set.convertToSet = function (thing) {
+            var thingType = Facet.getValueType(thing);
+            if (thingType.indexOf('SET/') === 0)
+                return thing;
+            return Set.fromJS({ setType: thingType, elements: [thing] });
+        };
+        Set.generalUnion = function (a, b) {
+            var aSet = Set.convertToSet(a);
+            var bSet = Set.convertToSet(b);
+            var aSetType = aSet.setType;
+            var bSetType = bSet.setType;
+            if (typeUpgrades[aSetType] === bSetType) {
+                aSet = aSet.upgradeType();
+            }
+            else if (typeUpgrades[bSetType] === aSetType) {
+                bSet = bSet.upgradeType();
+            }
+            else if (aSetType !== bSetType) {
+                return null;
+            }
+            return aSet.union(bSet).simplify();
+        };
+        Set.generalIntersect = function (a, b) {
+            var aSet = Set.convertToSet(a);
+            var bSet = Set.convertToSet(b);
+            var aSetType = aSet.setType;
+            var bSetType = bSet.setType;
+            if (typeUpgrades[aSetType] === bSetType) {
+                aSet = aSet.upgradeType();
+            }
+            else if (typeUpgrades[bSetType] === aSetType) {
+                bSet = bSet.upgradeType();
+            }
+            else if (aSetType !== bSetType) {
+                return null;
+            }
+            return aSet.intersect(bSet).simplify();
         };
         Set.fromJS = function (parameters) {
             if (Array.isArray(parameters)) {
@@ -1594,12 +1873,14 @@ var Facet;
             if (typeof parameters !== "object") {
                 throw new Error("unrecognizable set");
             }
-            if (!parameters.setType) {
-                parameters.setType = guessSetType(parameters.elements[0]);
+            var setType = parameters.setType;
+            var elements = parameters.elements;
+            if (!setType) {
+                setType = Facet.getValueType(elements.length ? elements[0] : null);
             }
             return new Set({
-                setType: parameters.setType,
-                elements: hashFromJS(parameters.elements, parameters.setType)
+                setType: setType,
+                elements: hashFromJS(elements, setType)
             });
         };
         Set.prototype.valueOf = function () {
@@ -1608,13 +1889,13 @@ var Facet;
                 elements: this.elements
             };
         };
-        Set.prototype.getValues = function () {
+        Set.prototype.getElements = function () {
             return hashToValues(this.elements);
         };
         Set.prototype.toJS = function () {
             return {
                 setType: this.setType,
-                elements: this.getValues().map(Facet.valueToJS)
+                elements: this.getElements().map(Facet.valueToJS)
             };
         };
         Set.prototype.toJSON = function () {
@@ -1627,9 +1908,59 @@ var Facet;
             return Set.isSet(other) && this.setType === other.setType && Object.keys(this.elements).sort().join('') === Object.keys(other.elements).sort().join('');
         };
         Set.prototype.empty = function () {
-            return this.toJS().elements.length === 0;
+            var elements = this.elements;
+            for (var k in elements) {
+                if (hasOwnProperty(elements, k))
+                    return false;
+            }
+            return true;
+        };
+        Set.prototype.simplify = function () {
+            var simpleSet = this.downgradeType();
+            var simpleSetElements = simpleSet.getElements();
+            return simpleSetElements.length === 1 ? simpleSetElements[0] : simpleSet;
+        };
+        Set.prototype.upgradeType = function () {
+            if (this.setType === 'NUMBER') {
+                return Set.fromJS({
+                    setType: 'NUMBER_RANGE',
+                    elements: this.getElements().map(Facet.NumberRange.fromNumber)
+                });
+            }
+            else if (this.setType === 'TIME') {
+                return Set.fromJS({
+                    setType: 'TIME_RANGE',
+                    elements: this.getElements().map(Facet.TimeRange.fromTime)
+                });
+            }
+            else {
+                return this;
+            }
+        };
+        Set.prototype.downgradeType = function () {
+            if (this.setType === 'NUMBER_RANGE' || this.setType === 'TIME_RANGE') {
+                var elements = this.getElements();
+                var simpleElements = [];
+                for (var i = 0; i < elements.length; i++) {
+                    var element = elements[i];
+                    if (element.degenerate()) {
+                        simpleElements.push(element.start);
+                    }
+                    else {
+                        return this;
+                    }
+                }
+                return Set.fromJS(simpleElements);
+            }
+            else {
+                return this;
+            }
         };
         Set.prototype.union = function (other) {
+            if (this.empty())
+                return other;
+            if (other.empty())
+                return this;
             if (this.setType !== other.setType) {
                 throw new TypeError("can not union sets of different types");
             }
@@ -1652,15 +1983,24 @@ var Facet;
             });
         };
         Set.prototype.intersect = function (other) {
+            if (this.empty() || other.empty())
+                return Set.EMPTY;
+            var setType = this.setType;
             if (this.setType !== other.setType) {
                 throw new TypeError("can not intersect sets of different types");
             }
             var thisValues = this.elements;
             var otherValues = other.elements;
-            var newValues = {};
-            for (var k in thisValues) {
-                if (hasOwnProperty(thisValues, k) && hasOwnProperty(otherValues, k)) {
-                    newValues[k] = thisValues[k];
+            var newValues;
+            if (setType === 'NUMBER_RANGE' || setType === 'TIME_RANGE') {
+                newValues = intersectElements(thisValues, otherValues);
+            }
+            else {
+                newValues = Object.create(null);
+                for (var k in thisValues) {
+                    if (hasOwnProperty(thisValues, k) && hasOwnProperty(otherValues, k)) {
+                        newValues[k] = thisValues[k];
+                    }
                 }
             }
             return new Set({
@@ -1682,16 +2022,22 @@ var Facet;
             return false;
         };
         Set.prototype.add = function (value) {
-            var elements = this.elements;
+            var setType = this.setType;
+            var valueType = Facet.getValueType(value);
+            if (setType === 'NULL')
+                setType = valueType;
+            if (setType !== valueType)
+                throw new Error('value type must match');
             var newValues = {};
             newValues[String(value)] = value;
+            var elements = this.elements;
             for (var k in elements) {
                 if (!hasOwnProperty(elements, k))
                     continue;
                 newValues[k] = elements[k];
             }
             return new Set({
-                setType: this.setType,
+                setType: setType,
                 elements: newValues
             });
         };
@@ -1699,7 +2045,7 @@ var Facet;
             return new Facet.NativeDataset({
                 source: 'native',
                 key: name,
-                data: this.getValues().map(function (v) {
+                data: this.getElements().map(function (v) {
                     var datum = {};
                     datum[name] = v;
                     return datum;
@@ -1711,6 +2057,7 @@ var Facet;
     })();
     Facet.Set = Set;
     check = Set;
+    Set.EMPTY = Set.fromJS([]);
 })(Facet || (Facet = {}));
 var Facet;
 (function (Facet) {
@@ -1834,14 +2181,8 @@ var Facet;
             return _super.prototype.equals.call(this, other) && this.width === other.width && this.height === other.height;
         };
         RectangleShape.prototype.margin = function (parameters) {
-            var left = parameters.left;
-            var width = parameters.width;
-            var right = parameters.right;
-            var top = parameters.top;
-            var height = parameters.height;
-            var bottom = parameters.bottom;
-            var xw = margin1d(left, width, right, this.width);
-            var yh = margin1d(top, height, bottom, this.height);
+            var xw = margin1d(parameters.left, parameters.width, parameters.right, this.width);
+            var yh = margin1d(parameters.top, parameters.height, parameters.bottom, this.height);
             return new RectangleShape({
                 x: xw[0],
                 y: yh[0],
@@ -1858,34 +2199,40 @@ var Facet;
 var Facet;
 (function (Facet) {
     function toDate(date, name) {
-        if (typeof date === "undefined" || date === null)
-            throw new TypeError('timeRange must have a `' + name + '`');
+        if (date === null)
+            return null;
+        if (typeof date === "undefined")
+            throw new TypeError("timeRange must have a " + name);
         if (typeof date === 'string' || typeof date === 'number')
             date = new Date(date);
         if (!date.getDay)
-            throw new TypeError('timeRange must have a `' + name + '` that is a Date');
+            throw new TypeError("timeRange must have a " + name + " that is a Date");
         return date;
     }
     function dateToIntervalPart(date) {
-        return date.toISOString().replace("Z", "").replace(".000", "").replace(/:00$/, "").replace(/:00$/, "").replace(/T00$/, "");
+        return date.toISOString().replace('Z', '').replace('.000', '').replace(/:00$/, '').replace(/:00$/, '').replace(/T00$/, '');
     }
     var check;
-    var TimeRange = (function () {
+    var TimeRange = (function (_super) {
+        __extends(TimeRange, _super);
         function TimeRange(parameters) {
-            this.start = parameters.start;
-            this.end = parameters.end;
+            _super.call(this, parameters.start, parameters.end, parameters.bounds);
         }
         TimeRange.isTimeRange = function (candidate) {
             return Facet.isInstanceOf(candidate, TimeRange);
         };
-        TimeRange.fromDate = function (date, duration, timezone) {
+        TimeRange.timeBucket = function (date, duration, timezone) {
             if (!date)
                 return null;
             var start = duration.floor(date, timezone);
             return new TimeRange({
                 start: start,
-                end: duration.move(start, timezone, 1)
+                end: duration.move(start, timezone, 1),
+                bounds: Facet.Range.DEFAULT_BOUNDS
             });
+        };
+        TimeRange.fromTime = function (t) {
+            return new TimeRange({ start: t, end: t, bounds: '[]' });
         };
         TimeRange.fromJS = function (parameters) {
             if (typeof parameters !== "object") {
@@ -1893,55 +2240,61 @@ var Facet;
             }
             return new TimeRange({
                 start: toDate(parameters.start, 'start'),
-                end: toDate(parameters.end, 'end')
+                end: toDate(parameters.end, 'end'),
+                bounds: parameters.bounds
             });
+        };
+        TimeRange.prototype._zeroEndpoint = function () {
+            return new Date(0);
+        };
+        TimeRange.prototype._endpointEqual = function (a, b) {
+            if (a === null) {
+                return b === null;
+            }
+            else {
+                return b !== null && a.valueOf() === b.valueOf();
+            }
+        };
+        TimeRange.prototype._endpointToString = function (a) {
+            if (!a)
+                return 'null';
+            return a.toISOString();
         };
         TimeRange.prototype.valueOf = function () {
             return {
                 start: this.start,
-                end: this.end
+                end: this.end,
+                bounds: this.bounds
             };
         };
         TimeRange.prototype.toJS = function () {
-            return {
+            var js = {
                 start: this.start,
                 end: this.end
             };
+            if (this.bounds !== Facet.Range.DEFAULT_BOUNDS)
+                js.bounds = this.bounds;
+            return js;
         };
         TimeRange.prototype.toJSON = function () {
             return this.toJS();
         };
-        TimeRange.prototype.toString = function () {
-            return "[" + this.start.toISOString() + ',' + this.end.toISOString() + ")";
-        };
         TimeRange.prototype.equals = function (other) {
-            return TimeRange.isTimeRange(other) && this.start.valueOf() === other.start.valueOf() && this.end.valueOf() === other.end.valueOf();
+            return TimeRange.isTimeRange(other) && this._equalsHelper(other);
         };
         TimeRange.prototype.toInterval = function () {
-            return dateToIntervalPart(this.start) + "/" + dateToIntervalPart(this.end);
-        };
-        TimeRange.prototype.union = function (other) {
-            if ((this.start < other.start && (this.end <= other.start)) || (other.start < this.start) && (other.end <= this.start)) {
-                return null;
-            }
-            var start = Math.min(this.start.valueOf(), other.start.valueOf());
-            var end = Math.max(this.end.valueOf(), other.end.valueOf());
-            return new TimeRange({ start: new Date(start), end: new Date(end) });
-        };
-        TimeRange.prototype.intersect = function (other) {
-            if ((this.start < other.start && (this.end <= other.start)) || (other.start < this.start) && (other.end <= this.start)) {
-                return null;
-            }
-            var start = Math.max(this.start.valueOf(), other.start.valueOf());
-            var end = Math.min(this.end.valueOf(), other.end.valueOf());
-            return new TimeRange({ start: new Date(start), end: new Date(end) });
-        };
-        TimeRange.prototype.contains = function (val) {
-            return this.start.valueOf() <= val.valueOf() && val.valueOf() < this.end.valueOf();
+            var start = this.start;
+            var end = this.end;
+            var bounds = this.bounds;
+            if (bounds[0] === '(')
+                start = new Date(start.valueOf() + 1000);
+            if (bounds[1] === ']')
+                end = new Date(end.valueOf() + 1000);
+            return dateToIntervalPart(start) + "/" + dateToIntervalPart(end);
         };
         TimeRange.type = 'TIME_RANGE';
         return TimeRange;
-    })();
+    })(Facet.Range);
     Facet.TimeRange = TimeRange;
     check = TimeRange;
 })(Facet || (Facet = {}));
@@ -2139,16 +2492,18 @@ var Facet;
             this.timeAttribute = parameters.timeAttribute;
             if (typeof this.timeAttribute !== 'string')
                 throw new Error("must have a timeAttribute");
-            this.forceInterval = parameters.forceInterval;
-            this.approximate = parameters.approximate;
+            this.allowEternity = parameters.allowEternity;
+            this.allowSelectQueries = parameters.allowSelectQueries;
+            this.exactResultsOnly = parameters.exactResultsOnly;
             this.context = parameters.context;
         }
         DruidDataset.fromJS = function (datasetJS) {
             var value = Facet.RemoteDataset.jsToValue(datasetJS);
             value.dataSource = datasetJS.dataSource;
             value.timeAttribute = datasetJS.timeAttribute;
-            value.forceInterval = datasetJS.forceInterval;
-            value.approximate = datasetJS.approximate;
+            value.allowEternity = Boolean(datasetJS.allowEternity);
+            value.allowSelectQueries = Boolean(datasetJS.allowSelectQueries);
+            value.exactResultsOnly = Boolean(datasetJS.exactResultsOnly);
             value.context = datasetJS.context;
             return new DruidDataset(value);
         };
@@ -2156,8 +2511,9 @@ var Facet;
             var value = _super.prototype.valueOf.call(this);
             value.dataSource = this.dataSource;
             value.timeAttribute = this.timeAttribute;
-            value.forceInterval = this.forceInterval;
-            value.approximate = this.approximate;
+            value.allowEternity = this.allowEternity;
+            value.allowSelectQueries = this.allowSelectQueries;
+            value.exactResultsOnly = this.exactResultsOnly;
             value.context = this.context;
             return value;
         };
@@ -2165,13 +2521,17 @@ var Facet;
             var js = _super.prototype.toJS.call(this);
             js.dataSource = this.dataSource;
             js.timeAttribute = this.timeAttribute;
-            js.forceInterval = this.forceInterval;
-            js.approximate = this.approximate;
+            if (this.allowEternity)
+                js.allowEternity = true;
+            if (this.allowSelectQueries)
+                js.allowSelectQueries = true;
+            if (this.exactResultsOnly)
+                js.exactResultsOnly = true;
             js.context = this.context;
             return js;
         };
         DruidDataset.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && String(this.dataSource) === String(other.dataSource) && this.timeAttribute === other.timeAttribute && this.forceInterval === other.forceInterval && this.approximate === other.approximate && this.context === other.context;
+            return _super.prototype.equals.call(this, other) && String(this.dataSource) === String(other.dataSource) && this.timeAttribute === other.timeAttribute && this.allowEternity === other.allowEternity && this.allowSelectQueries === other.allowSelectQueries && this.exactResultsOnly === other.exactResultsOnly && this.context === other.context;
         };
         DruidDataset.prototype.getId = function () {
             return _super.prototype.getId.call(this) + ':' + this.dataSource;
@@ -2269,7 +2629,7 @@ var Facet;
                     if (rhsType === 'SET/STRING') {
                         return {
                             type: "or",
-                            fields: rhs.value.getValues().map(function (value) {
+                            fields: rhs.value.getElements().map(function (value) {
                                 return {
                                     type: "selector",
                                     dimension: lhs.name,
@@ -2349,7 +2709,11 @@ var Facet;
             if (filter.type !== 'BOOLEAN')
                 throw new Error("must be a BOOLEAN filter");
             if (filter instanceof Facet.LiteralExpression) {
-                return filter.value ? DruidDataset.TRUE_INTERVAL : DruidDataset.FALSE_INTERVAL;
+                if (!filter.value)
+                    return DruidDataset.FALSE_INTERVAL;
+                if (!this.allowEternity)
+                    throw new Error('must filter on time unless the allowEternity flag is set');
+                return DruidDataset.TRUE_INTERVAL;
             }
             else if (filter instanceof Facet.InExpression) {
                 var lhs = filter.lhs;
@@ -2358,7 +2722,7 @@ var Facet;
                     var timeRanges;
                     var rhsType = rhs.type;
                     if (rhsType === 'SET/TIME_RANGE') {
-                        timeRanges = rhs.value.getValues();
+                        timeRanges = rhs.value.getElements();
                     }
                     else if (rhsType === 'TIME_RANGE') {
                         timeRanges = [rhs.value];
@@ -2421,7 +2785,7 @@ var Facet;
             var postProcess = null;
             if (splitExpression instanceof Facet.RefExpression) {
                 var dimensionSpec = (splitExpression.name === label) ? label : { type: "default", dimension: splitExpression.name, outputName: label };
-                if (this.havingFilter.equals(Facet.Expression.TRUE) && this.limit && this.approximate) {
+                if (this.havingFilter.equals(Facet.Expression.TRUE) && this.limit && !this.exactResultsOnly) {
                     var attributeInfo = this.attributes[splitExpression.name];
                     queryType = 'topN';
                     if (attributeInfo instanceof Facet.RangeAttributeInfo) {
@@ -2442,6 +2806,33 @@ var Facet;
                     queryType = 'groupBy';
                     dimensions = [dimensionSpec];
                     postProcess = postProcessGroupBy;
+                }
+            }
+            else if (splitExpression instanceof Facet.SubstrExpression) {
+                var refExpression = splitExpression.operand;
+                if (refExpression instanceof Facet.RefExpression) {
+                    var substrDimension = {
+                        type: "extraction",
+                        dimension: refExpression.name,
+                        outputName: label,
+                        extractionFn: {
+                            type: "javascript",
+                            'function': "function(s){return s.substr(" + splitExpression.position + "," + splitExpression.length + ");}"
+                        }
+                    };
+                    if (this.havingFilter.equals(Facet.Expression.TRUE) && this.limit && !this.exactResultsOnly) {
+                        queryType = 'topN';
+                        dimension = substrDimension;
+                        postProcess = postProcessTopNFactory(null, null);
+                    }
+                    else {
+                        queryType = 'groupBy';
+                        dimensions = [substrDimension];
+                        postProcess = postProcessGroupBy;
+                    }
+                }
+                else {
+                    throw new Error("can not convert complex substr: " + refExpression.toString());
                 }
             }
             else if (splitExpression instanceof Facet.TimePartExpression) {
@@ -2709,7 +3100,27 @@ var Facet;
                 postAggregations: postAggregations
             };
         };
+        DruidDataset.prototype.makeHavingComparison = function (agg, op, value) {
+            switch (op) {
+                case '<': return { type: "lessThan", aggregation: agg, value: value };
+                case '>': return { type: "greaterThan", aggregation: agg, value: value };
+                case '<=': return { type: 'not', field: { type: "greaterThan", aggregation: agg, value: value } };
+                case '>=': return { type: 'not', field: { type: "lessThan", aggregation: agg, value: value } };
+                default: throw new Error('unknown op: ' + op);
+            }
+        };
+        DruidDataset.prototype.inToHavingFilter = function (agg, range) {
+            var fields = [];
+            if (range.start !== null) {
+                fields.push(this.makeHavingComparison(agg, (range.bounds[0] === '[' ? '>=' : '>'), range.start));
+            }
+            if (range.end !== null) {
+                fields.push(this.makeHavingComparison(agg, (range.bounds[1] === ']' ? '<=' : '<'), range.end));
+            }
+            return fields.length === 1 ? fields[0] : { type: 'or', fields: fields };
+        };
         DruidDataset.prototype.havingFilterToDruid = function (filter) {
+            var _this = this;
             if (filter instanceof Facet.LiteralExpression) {
                 if (filter.value === true) {
                     return null;
@@ -2740,7 +3151,7 @@ var Facet;
                     if (rhsType === 'SET/STRING') {
                         return {
                             type: "or",
-                            fields: rhs.value.getValues().map(function (value) {
+                            fields: rhs.value.getElements().map(function (value) {
                                 return {
                                     type: "equalTo",
                                     aggregation: lhs.name,
@@ -2749,8 +3160,16 @@ var Facet;
                             })
                         };
                     }
+                    else if (rhsType === 'SET/NUMBER_RANGE') {
+                        return {
+                            type: "or",
+                            fields: rhs.value.getElements().map(function (value) {
+                                return _this.inToHavingFilter(lhs.name, value);
+                            }, this)
+                        };
+                    }
                     else if (rhsType === 'NUMBER_RANGE') {
-                        throw new Error("to do");
+                        return this.inToHavingFilter(lhs.name, rhs.value);
                     }
                     else if (rhsType === 'TIME_RANGE') {
                         throw new Error("can not time filter on non-primary time dimension");
@@ -2761,24 +3180,6 @@ var Facet;
                 }
                 else {
                     throw new Error("can not convert " + filter.toString() + " to Druid having filter");
-                }
-            }
-            else if (filter instanceof Facet.LessThanExpression) {
-                var lhs = filter.lhs;
-                var rhs = filter.rhs;
-                if (lhs instanceof Facet.RefExpression && rhs instanceof Facet.LiteralExpression) {
-                    return {
-                        type: "lessThan",
-                        aggregation: lhs.name,
-                        value: rhs.value
-                    };
-                }
-                if (lhs instanceof Facet.LiteralExpression && rhs instanceof Facet.RefExpression) {
-                    return {
-                        type: "greaterThan",
-                        aggregation: rhs.name,
-                        value: lhs.value
-                    };
                 }
             }
             else if (filter instanceof Facet.NotExpression) {
@@ -2837,6 +3238,9 @@ var Facet;
             }
             switch (this.mode) {
                 case 'raw':
+                    if (!this.allowSelectQueries) {
+                        throw new Error("can issue make 'select' queries unless allowSelectQueries flag is set");
+                    }
                     druidQuery.queryType = 'select';
                     druidQuery.dimensions = [];
                     druidQuery.metrics = [];
@@ -3101,362 +3505,6 @@ var Facet;
 })(Facet || (Facet = {}));
 var Facet;
 (function (Facet) {
-    function makeFacetFilter(expression) {
-        if (expression.type !== 'BOOLEAN')
-            return null;
-        if (expression instanceof Facet.LiteralExpression) {
-            return {
-                type: String(expression.value)
-            };
-        }
-        else if (expression instanceof Facet.IsExpression) {
-            if (expression.lhs.isOp('ref') && expression.rhs.isOp('literal')) {
-                return {
-                    type: 'is',
-                    attribute: expression.lhs.name,
-                    value: expression.rhs.value
-                };
-            }
-            else {
-                return null;
-            }
-        }
-        else if (expression instanceof Facet.InExpression) {
-            if (expression.lhs.isOp('ref') && expression.rhs.isOp('literal')) {
-                if (expression.rhs.type === 'SET') {
-                    return {
-                        type: 'in',
-                        attribute: expression.lhs.name,
-                        values: expression.rhs.value.toJS().values
-                    };
-                }
-                else if (expression.rhs.type === 'TIME_RANGE' || expression.rhs.type === 'NUMBER_RANGE') {
-                    var timeRange = expression.rhs.value;
-                    return {
-                        type: 'within',
-                        attribute: expression.lhs.name,
-                        range: [timeRange.start, timeRange.end]
-                    };
-                }
-                else {
-                    return null;
-                }
-            }
-            else {
-                return null;
-            }
-        }
-        else if (expression instanceof Facet.NotExpression) {
-            var subFilter = makeFacetFilter(expression.operand);
-            if (subFilter) {
-                return {
-                    type: 'not',
-                    filter: subFilter
-                };
-            }
-            else {
-                return null;
-            }
-        }
-        else if (expression instanceof Facet.AndExpression) {
-            var subFilters = expression.operands.map(makeFacetFilter);
-            if (subFilters.every(Boolean)) {
-                return {
-                    type: 'and',
-                    filters: subFilters
-                };
-            }
-            else {
-                return null;
-            }
-        }
-        else if (expression instanceof Facet.OrExpression) {
-            var subFilters = expression.operands.map(makeFacetFilter);
-            if (subFilters.every(Boolean)) {
-                return {
-                    type: 'or',
-                    filters: subFilters
-                };
-            }
-            else {
-                return null;
-            }
-        }
-        return null;
-    }
-    function makeFacetApply(expression) {
-        if (expression.type !== 'NUMBER')
-            return null;
-        if (expression instanceof Facet.LiteralExpression) {
-            return {
-                aggregate: 'constant',
-                value: expression.value
-            };
-        }
-        else if (expression instanceof Facet.AggregateExpression) {
-            if (expression.fn === 'count') {
-                return { aggregate: 'count' };
-            }
-            var attribute = expression.attribute;
-            if (attribute instanceof Facet.RefExpression) {
-                return {
-                    aggregate: expression.fn,
-                    attribute: attribute.name
-                };
-            }
-            else {
-                return null;
-            }
-        }
-        return null;
-    }
-    function makeFacetSplit(expression, datasetName) {
-        if (expression.type !== 'DATASET')
-            return null;
-        if (expression instanceof Facet.LabelExpression) {
-            var name = expression.name;
-            var splitAgg = expression.operand;
-            if (splitAgg instanceof Facet.AggregateExpression) {
-                var datasetRef = splitAgg.operand;
-                if (datasetRef instanceof Facet.RefExpression) {
-                    if (datasetRef.name !== datasetName)
-                        return null;
-                }
-                else {
-                    return null;
-                }
-                var attr = splitAgg.attribute;
-                if (attr instanceof Facet.RefExpression) {
-                    return {
-                        name: name,
-                        bucket: 'identity',
-                        attribute: attr.name
-                    };
-                }
-                else if (attr instanceof Facet.NumberBucketExpression) {
-                    var subAttr = attr.operand;
-                    if (subAttr instanceof Facet.RefExpression) {
-                        return {
-                            name: name,
-                            bucket: 'continuous',
-                            attribute: subAttr.name,
-                            size: attr.size,
-                            offset: attr.offset
-                        };
-                    }
-                    else {
-                        return null;
-                    }
-                }
-                else if (attr instanceof Facet.TimeBucketExpression) {
-                    var subAttr = attr.operand;
-                    if (subAttr instanceof Facet.RefExpression) {
-                        return {
-                            name: name,
-                            bucket: 'timePeriod',
-                            attribute: subAttr.name,
-                            period: attr.duration,
-                            timezone: attr.timezone
-                        };
-                    }
-                    else {
-                        return null;
-                    }
-                }
-            }
-            else {
-                return null;
-            }
-        }
-        else {
-            return null;
-        }
-    }
-    function getFilter(expression) {
-        if (expression.type !== 'DATASET')
-            return null;
-        if (expression instanceof Facet.LiteralExpression) {
-            return { type: 'true' };
-        }
-        else if (expression instanceof Facet.ActionsExpression) {
-            var actions = expression.actions;
-            if (actions.some(function (action) { return action.action !== 'filter'; }))
-                return null;
-            return makeFacetFilter(actions[0].expression);
-        }
-        else {
-            return null;
-        }
-    }
-    function legacyTranslator(expression) {
-        if (expression instanceof Facet.ActionsExpression) {
-            if (!expression.operand.isOp('literal') || expression.operand.type !== 'DATASET') {
-                return null;
-            }
-            var query = [];
-            var datasetName;
-            var actions = expression.actions;
-            var action = actions[0];
-            if (action instanceof Facet.DefAction) {
-                if (action.expression.type !== 'DATASET')
-                    throw new Error("can not have non DATASET def actions");
-                var filter = getFilter(action.expression);
-                if (filter) {
-                    datasetName = action.name;
-                    if (filter.type !== 'true') {
-                        filter.operation = 'filter';
-                        query.push(filter);
-                    }
-                }
-                else {
-                    throw new Error('unsupported filter');
-                }
-            }
-            else {
-                throw new Error('must have dataset');
-            }
-            var splitPart = null;
-            for (var i = 1; i < actions.length; i++) {
-                var action = actions[i];
-                if (action instanceof Facet.ApplyAction) {
-                    if (action.expression.type === 'NUMBER') {
-                        var apply = makeFacetApply(action.expression);
-                        if (apply) {
-                            apply.operation = 'apply';
-                            apply.name = action.name;
-                            query.push(apply);
-                        }
-                        else {
-                            throw new Error('unsupported apply');
-                        }
-                    }
-                    else if (action.expression.type === 'DATASET') {
-                        if (splitPart)
-                            throw new Error("Can have at most one split");
-                        splitPart = legacyTranslatorSplit(action.expression, datasetName);
-                    }
-                    else {
-                        throw new Error("can not have non NUMBER or DATASET apply actions");
-                    }
-                }
-            }
-        }
-        else {
-            return null;
-        }
-        return Facet.Legacy.FacetQuery.fromJS(query.concat(splitPart || []));
-    }
-    Facet.legacyTranslator = legacyTranslator;
-    function legacyTranslatorSplit(expression, datasetName) {
-        var query = [];
-        if (expression instanceof Facet.ActionsExpression) {
-            var split = makeFacetSplit(expression.operand, datasetName);
-            if (split) {
-                split.operation = 'split';
-                query.push(split);
-            }
-            else {
-                throw new Error('unsupported split');
-            }
-            var actions = expression.actions;
-            var action = actions[0];
-            if (action instanceof Facet.DefAction) {
-                if (action.expression.type !== 'DATASET')
-                    throw new Error("must be filtered on the datasource");
-            }
-            else {
-                throw new Error('must have dataset');
-            }
-            var combine = {
-                operation: 'combine'
-            };
-            var splitPart = null;
-            for (var i = 1; i < actions.length; i++) {
-                var action = actions[i];
-                if (action instanceof Facet.ApplyAction) {
-                    if (action.expression.type === 'NUMBER') {
-                        var apply = makeFacetApply(action.expression);
-                        if (apply) {
-                            apply.operation = 'apply';
-                            apply.name = action.name;
-                            query.push(apply);
-                        }
-                        else {
-                            throw new Error('unsupported apply');
-                        }
-                    }
-                    else if (action.expression.type === 'DATASET') {
-                        if (splitPart)
-                            throw new Error("Can have at most one split");
-                        splitPart = legacyTranslatorSplit(action.expression, datasetName);
-                    }
-                    else {
-                        throw new Error("can not have non NUMBER or DATASET apply actions");
-                    }
-                }
-                else if (action instanceof Facet.SortAction) {
-                    var sortExpression = action.expression;
-                    if (sortExpression instanceof Facet.RefExpression) {
-                        combine.method = 'slice';
-                        combine.sort = {
-                            compare: 'natural',
-                            prop: sortExpression.name,
-                            direction: action.direction
-                        };
-                    }
-                }
-                else if (action instanceof Facet.LimitAction) {
-                    combine.limit = action.limit;
-                }
-            }
-            return query.concat([combine], splitPart || []);
-        }
-        else {
-            throw new Error('must split on actions');
-        }
-    }
-    function segmentTreesToDataset(segmentTrees, splitNames) {
-        var splitName = splitNames[0];
-        var splitNamesTail = splitNames.slice(1);
-        return new Facet.NativeDataset({
-            source: 'native',
-            data: segmentTrees.map(function (segmentTree) {
-                var prop = segmentTree.prop;
-                var datum = {};
-                for (var k in prop) {
-                    var v = prop[k];
-                    if (!Array.isArray(v)) {
-                        datum[k] = v;
-                    }
-                    else if (typeof v[0] === 'number') {
-                        datum[k] = Facet.NumberRange.fromJS({ start: v[0], end: v[1] });
-                    }
-                    else {
-                        datum[k] = Facet.TimeRange.fromJS({ start: v[0], end: v[1] });
-                    }
-                }
-                if (segmentTree.splits) {
-                    datum[splitName] = segmentTreesToDataset(segmentTree.splits, splitNamesTail);
-                }
-                return datum;
-            })
-        });
-    }
-    function legacyConverter(legacyDriver) {
-        return function (ex) {
-            var legacyQuery = legacyTranslator(ex);
-            return legacyDriver({
-                query: legacyQuery
-            }).then(function (segmentTree) {
-                var splitNames = legacyQuery.getSplits().map(function (split) { return split.name; });
-                return segmentTreesToDataset([segmentTree], splitNames);
-            });
-        };
-    }
-    Facet.legacyConverter = legacyConverter;
-})(Facet || (Facet = {}));
-var Facet;
-(function (Facet) {
     Facet.simulatedQueries = null;
     function mergeRemotes(remotes) {
         var lookup = {};
@@ -3551,16 +3599,14 @@ var Facet;
                     else if (param.op) {
                         expressionJS = param;
                     }
+                    else if (param.toISOString) {
+                        expressionJS = { op: 'literal', value: new Date(param) };
+                    }
                     else if (Array.isArray(param)) {
                         expressionJS = { op: 'literal', value: Facet.Set.fromJS(param) };
                     }
                     else if (hasOwnProperty(param, 'start') && hasOwnProperty(param, 'end')) {
-                        if (typeof param.start === 'number') {
-                            expressionJS = { op: 'literal', value: Facet.NumberRange.fromJS(param) };
-                        }
-                        else {
-                            expressionJS = { op: 'literal', value: Facet.TimeRange.fromJS(param) };
-                        }
+                        expressionJS = { op: 'literal', value: Facet.Range.fromJS(param) };
                     }
                     else {
                         throw new Error('unknown parameter');
@@ -3851,6 +3897,9 @@ var Facet;
                 timezone = Facet.Timezone.fromJS(timezone);
             return this._performUnaryExpression({ op: 'timePart', part: part, timezone: timezone });
         };
+        Expression.prototype.substr = function (position, length) {
+            return this._performUnaryExpression({ op: 'timePart', position: position, length: length });
+        };
         Expression.prototype._performAggregate = function (fn, attribute) {
             if (!Expression.isExpression(attribute))
                 attribute = Expression.fromJSLoose(attribute);
@@ -3881,16 +3930,15 @@ var Facet;
                 name: name
             });
         };
-        Expression.prototype.split = function (attribute, name, dataName) {
-            if (dataName === void 0) { dataName = null; }
+        Expression.prototype.split = function (attribute, name, newDataName) {
+            if (newDataName === void 0) { newDataName = null; }
             if (!Expression.isExpression(attribute))
                 attribute = Expression.fromJSLoose(attribute);
-            if (!dataName) {
-                if (!this.isOp('ref'))
-                    throw new Error("could not guess data name in `split`, please provide one explicitly");
-                dataName = this.name;
+            var dataName = this.isOp('ref') ? this.name : null;
+            if (!dataName && !newDataName) {
+                throw new Error("could not guess data name in `split`, please provide one explicitly");
             }
-            return this.group(attribute).label(name).def(dataName, $('^' + dataName).filter(attribute.is($('^' + name))));
+            return this.group(attribute).label(name).def(newDataName || dataName, $('^' + (dataName || newDataName)).filter(attribute.is($('^' + name))));
         };
         Expression.prototype._performBinaryExpression = function (newValue, otherEx) {
             if (typeof otherEx === 'undefined')
@@ -4310,13 +4358,21 @@ var Facet;
             return ret;
         };
         BinaryExpression.prototype.checkLefthandedness = function () {
-            if (this.lhs instanceof Facet.RefExpression && this.rhs instanceof Facet.RefExpression)
-                return null;
-            if (this.lhs instanceof Facet.RefExpression)
-                return true;
-            if (this.rhs instanceof Facet.RefExpression)
-                return false;
-            return null;
+            return this.lhs.isOp('ref') && this.rhs.isOp('literal');
+        };
+        BinaryExpression.prototype._checkMatchingTypes = function () {
+            var lhsType = this.lhs.type;
+            var rhsType = this.rhs.type;
+            if (lhsType && rhsType && lhsType !== rhsType) {
+                throw new TypeError("" + this.op + " expression must have matching types, (are: " + lhsType + ", " + rhsType + ")");
+            }
+        };
+        BinaryExpression.prototype._checkNumberOrTime = function () {
+            var lhs = this.lhs;
+            var rhs = this.rhs;
+            if (!((lhs.canHaveType('NUMBER') && rhs.canHaveType('NUMBER')) || (lhs.canHaveType('TIME') && rhs.canHaveType('TIME')))) {
+                throw new TypeError("" + this.op + " expression has a bad type combination " + (lhs.type || '?') + ", " + (rhs.type || '?'));
+            }
         };
         BinaryExpression.prototype._everyHelper = function (iter, depth, genDiff) {
             var pass = iter(this, depth, genDiff);
@@ -5077,40 +5133,32 @@ var Facet;
         AndExpression.prototype.simplify = function () {
             if (this.simple)
                 return this;
-            var finalOperands;
-            var groupedOperands;
-            var mergedExpression;
-            var mergedSimplifiedOperands;
-            var referenceGroup;
-            var simplifiedOperands;
-            var sortedReferenceGroups;
-            var thisOperand;
-            mergedSimplifiedOperands = [];
-            simplifiedOperands = this.operands.map(function (operand) { return operand.simplify(); });
+            var simplifiedOperands = this.operands.map(function (operand) { return operand.simplify(); });
+            var mergedSimplifiedOperands = [];
             for (var i = 0; i < simplifiedOperands.length; i++) {
                 var simplifiedOperand = simplifiedOperands[i];
                 if (simplifiedOperand instanceof AndExpression) {
-                    mergedSimplifiedOperands = mergedSimplifiedOperands.concat((simplifiedOperand).operands);
+                    mergedSimplifiedOperands = mergedSimplifiedOperands.concat(simplifiedOperand.operands);
                 }
                 else {
                     mergedSimplifiedOperands.push(simplifiedOperand);
                 }
             }
-            groupedOperands = {};
+            var groupedOperands = {};
             for (var j = 0; j < mergedSimplifiedOperands.length; j++) {
-                thisOperand = mergedSimplifiedOperands[j];
-                referenceGroup = thisOperand.getFreeReferences().toString();
-                if (groupedOperands[referenceGroup]) {
+                var thisOperand = mergedSimplifiedOperands[j];
+                var referenceGroup = thisOperand.getFreeReferences().toString();
+                if (hasOwnProperty(groupedOperands, referenceGroup)) {
                     groupedOperands[referenceGroup].push(thisOperand);
                 }
                 else {
                     groupedOperands[referenceGroup] = [thisOperand];
                 }
             }
-            finalOperands = [];
-            sortedReferenceGroups = Object.keys(groupedOperands).sort();
+            var sortedReferenceGroups = Object.keys(groupedOperands).sort();
+            var finalOperands = [];
             for (var k = 0; k < sortedReferenceGroups.length; k++) {
-                mergedExpression = AndExpression._mergeExpressions(groupedOperands[sortedReferenceGroups[k]]);
+                var mergedExpression = AndExpression._mergeExpressions(groupedOperands[sortedReferenceGroups[k]]);
                 if (mergedExpression === null) {
                     finalOperands = finalOperands.concat(groupedOperands[sortedReferenceGroups[k]]);
                 }
@@ -5222,13 +5270,70 @@ var Facet;
 })(Facet || (Facet = {}));
 var Facet;
 (function (Facet) {
+    var SubstrExpression = (function (_super) {
+        __extends(SubstrExpression, _super);
+        function SubstrExpression(parameters) {
+            _super.call(this, parameters, dummyObject);
+            this.position = parameters.position;
+            this.length = parameters.length;
+            this._ensureOp("substr");
+            this._checkTypeOfOperand('STRING');
+            this.type = 'STRING';
+        }
+        SubstrExpression.fromJS = function (parameters) {
+            var value = Facet.UnaryExpression.jsToValue(parameters);
+            value.position = parameters.position;
+            value.length = parameters.length;
+            return new SubstrExpression(value);
+        };
+        SubstrExpression.prototype.valueOf = function () {
+            var value = _super.prototype.valueOf.call(this);
+            value.position = this.position;
+            value.length = this.length;
+            return value;
+        };
+        SubstrExpression.prototype.toJS = function () {
+            var js = _super.prototype.toJS.call(this);
+            js.position = this.position;
+            js.length = this.length;
+            return js;
+        };
+        SubstrExpression.prototype.toString = function () {
+            return "" + this.operand.toString() + ".substr(" + this.position + "," + this.length + ")";
+        };
+        SubstrExpression.prototype.equals = function (other) {
+            return _super.prototype.equals.call(this, other) && this.position === other.position && this.length === other.length;
+        };
+        SubstrExpression.prototype._getFnHelper = function (operandFn) {
+            var position = this.position;
+            var length = this.length;
+            return function (d) {
+                var v = operandFn(d);
+                if (v === null)
+                    return null;
+                return v.substr(position, length);
+            };
+        };
+        SubstrExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
+            throw new Error("implement me");
+        };
+        SubstrExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
+            return "SUBSTR(" + operandSQL + "," + (this.position + 1) + "," + this.length + ")";
+        };
+        return SubstrExpression;
+    })(Facet.UnaryExpression);
+    Facet.SubstrExpression = SubstrExpression;
+    Facet.Expression.register(SubstrExpression);
+})(Facet || (Facet = {}));
+var Facet;
+(function (Facet) {
     var GreaterThanExpression = (function (_super) {
         __extends(GreaterThanExpression, _super);
         function GreaterThanExpression(parameters) {
             _super.call(this, parameters, dummyObject);
             this._ensureOp("greaterThan");
-            this._checkTypeOf('lhs', 'NUMBER');
-            this._checkTypeOf('rhs', 'NUMBER');
+            this._checkMatchingTypes();
+            this._checkNumberOrTime();
             this.type = 'BOOLEAN';
         }
         GreaterThanExpression.fromJS = function (parameters) {
@@ -5237,11 +5342,11 @@ var Facet;
         GreaterThanExpression.prototype.toString = function () {
             return "" + this.lhs.toString() + " > " + this.rhs.toString();
         };
-        GreaterThanExpression.prototype.simplify = function () {
+        GreaterThanExpression.prototype._specialSimplify = function (simpleLhs, simpleRhs) {
             return (new Facet.LessThanExpression({
                 op: 'lessThan',
-                lhs: this.rhs,
-                rhs: this.lhs
+                lhs: simpleRhs,
+                rhs: simpleLhs
             })).simplify();
         };
         GreaterThanExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
@@ -5265,8 +5370,8 @@ var Facet;
         function GreaterThanOrEqualExpression(parameters) {
             _super.call(this, parameters, dummyObject);
             this._ensureOp("greaterThanOrEqual");
-            this._checkTypeOf('lhs', 'NUMBER');
-            this._checkTypeOf('rhs', 'NUMBER');
+            this._checkMatchingTypes();
+            this._checkNumberOrTime();
             this.type = 'BOOLEAN';
         }
         GreaterThanOrEqualExpression.fromJS = function (parameters) {
@@ -5275,11 +5380,11 @@ var Facet;
         GreaterThanOrEqualExpression.prototype.toString = function () {
             return "" + this.lhs.toString() + " = " + this.rhs.toString();
         };
-        GreaterThanOrEqualExpression.prototype.simplify = function () {
+        GreaterThanOrEqualExpression.prototype._specialSimplify = function (simpleLhs, simpleRhs) {
             return (new Facet.LessThanOrEqualExpression({
                 op: 'lessThanOrEqual',
-                lhs: this.rhs,
-                rhs: this.lhs
+                lhs: simpleRhs,
+                rhs: simpleLhs
             })).simplify();
         };
         GreaterThanOrEqualExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
@@ -5298,6 +5403,21 @@ var Facet;
 })(Facet || (Facet = {}));
 var Facet;
 (function (Facet) {
+    function makeInOrIs(lhs, value) {
+        var literal = new Facet.LiteralExpression({
+            op: 'literal',
+            value: value
+        });
+        var literalType = literal.type;
+        var returnExpression = null;
+        if (literalType === 'NUMBER_RANGE' || literalType === 'TIME_RANGE' || literalType.indexOf('SET/') === 0) {
+            returnExpression = new InExpression({ op: 'in', lhs: lhs, rhs: literal });
+        }
+        else {
+            returnExpression = new Facet.IsExpression({ op: 'is', lhs: lhs, rhs: literal });
+        }
+        return returnExpression.simplify();
+    }
     var InExpression = (function (_super) {
         __extends(InExpression, _super);
         function InExpression(parameters) {
@@ -5343,17 +5463,17 @@ var Facet;
                 case 'NUMBER_RANGE':
                     if (rhs instanceof Facet.LiteralExpression) {
                         var numberRange = rhs.value;
-                        return "(" + numberRange.start + "<=" + lhsSQL + " AND " + lhsSQL + "<" + numberRange.end + ")";
+                        return dialect.inExpression(lhsSQL, Facet.numberToSQL(numberRange.start), Facet.numberToSQL(numberRange.end), numberRange.bounds);
                     }
                     throw new Error('not implemented yet');
                 case 'TIME_RANGE':
                     if (rhs instanceof Facet.LiteralExpression) {
                         var timeRange = rhs.value;
-                        return "('" + Facet.dateToSQL(timeRange.start) + "'<=" + lhsSQL + " AND " + lhsSQL + "<'" + Facet.dateToSQL(timeRange.end) + "')";
+                        return dialect.inExpression(lhsSQL, Facet.timeToSQL(timeRange.start), Facet.timeToSQL(timeRange.end), timeRange.bounds);
                     }
                     throw new Error('not implemented yet');
                 case 'SET/STRING':
-                    return "" + lhsSQL + " in " + rhsSQL;
+                    return "" + lhsSQL + " IN " + rhsSQL;
                 default:
                     throw new Error('not implemented yet');
             }
@@ -5363,29 +5483,13 @@ var Facet;
                 return null;
             if (!checkArrayEquality(this.getFreeReferences(), exp.getFreeReferences()))
                 return null;
-            if (exp instanceof Facet.IsExpression) {
-                return exp.mergeAnd(this);
-            }
-            else if (exp instanceof InExpression) {
+            if (exp instanceof Facet.IsExpression || exp instanceof InExpression) {
                 if (!exp.checkLefthandedness())
                     return null;
-                var rhsType = this.rhs.type;
-                if (rhsType !== exp.rhs.type)
-                    return Facet.Expression.FALSE;
-                if (rhsType === 'TIME_RANGE' || rhsType === 'NUMBER_RANGE' || rhsType.indexOf('SET/') === 0) {
-                    var intersect = this.rhs.value.intersect(exp.rhs.value);
-                    if (intersect === null)
-                        return Facet.Expression.FALSE;
-                    return new InExpression({
-                        op: 'in',
-                        lhs: this.lhs,
-                        rhs: new Facet.LiteralExpression({
-                            op: 'literal',
-                            value: intersect
-                        })
-                    }).simplify();
-                }
-                return null;
+                var intersect = Facet.Set.generalIntersect(this.rhs.value, exp.rhs.value);
+                if (intersect === null)
+                    return null;
+                return makeInOrIs(this.lhs, intersect);
             }
             return exp;
         };
@@ -5394,29 +5498,13 @@ var Facet;
                 return null;
             if (!checkArrayEquality(this.getFreeReferences(), exp.getFreeReferences()))
                 return null;
-            if (exp instanceof Facet.IsExpression) {
-                return exp.mergeOr(this);
-            }
-            else if (exp instanceof InExpression) {
+            if (exp instanceof Facet.IsExpression || exp instanceof InExpression) {
                 if (!exp.checkLefthandedness())
                     return null;
-                var rhsType = this.rhs.type;
-                if (rhsType !== exp.rhs.type)
-                    return Facet.Expression.FALSE;
-                if (rhsType === 'TIME_RANGE' || rhsType === 'NUMBER_RANGE' || rhsType.indexOf('SET/') === 0) {
-                    var intersect = this.rhs.value.union(exp.rhs.value);
-                    if (intersect === null)
-                        return null;
-                    return new InExpression({
-                        op: 'in',
-                        lhs: this.lhs,
-                        rhs: new Facet.LiteralExpression({
-                            op: 'literal',
-                            value: intersect
-                        })
-                    }).simplify();
-                }
-                return null;
+                var intersect = Facet.Set.generalUnion(this.rhs.value, exp.rhs.value);
+                if (intersect === null)
+                    return null;
+                return makeInOrIs(this.lhs, intersect);
             }
             return exp;
         };
@@ -5477,11 +5565,7 @@ var Facet;
         function IsExpression(parameters) {
             _super.call(this, parameters, dummyObject);
             this._ensureOp("is");
-            var lhsType = this.lhs.type;
-            var rhsType = this.rhs.type;
-            if (lhsType && rhsType && lhsType !== rhsType) {
-                throw new TypeError('is expression must have matching types, (are: ' + lhsType + ', ' + rhsType + ')');
-            }
+            this._checkMatchingTypes();
             this.type = 'BOOLEAN';
         }
         IsExpression.fromJS = function (parameters) {
@@ -5517,24 +5601,7 @@ var Facet;
                 return Facet.Expression.FALSE;
             }
             else if (exp instanceof Facet.InExpression) {
-                if (references.length === 2)
-                    return null;
-                if (!(this.lhs instanceof Facet.RefExpression && exp.lhs instanceof Facet.RefExpression))
-                    return null;
-                var expRhs = exp.rhs;
-                var thisValue = (this.rhs).value;
-                if (expRhs instanceof Facet.LiteralExpression) {
-                    var rValue = expRhs.value;
-                    if (rValue instanceof Facet.Set || rValue instanceof Facet.TimeRange || rValue instanceof Facet.NumberRange) {
-                        if (rValue.contains(thisValue)) {
-                            return this;
-                        }
-                        else {
-                            return Facet.Expression.FALSE;
-                        }
-                    }
-                }
-                return null;
+                return exp.mergeAnd(this);
             }
             else {
                 return null;
@@ -5567,39 +5634,7 @@ var Facet;
                 });
             }
             else if (exp instanceof Facet.InExpression) {
-                if (references.length === 2)
-                    return null;
-                if (!(this.lhs instanceof Facet.RefExpression && exp.lhs instanceof Facet.RefExpression))
-                    return null;
-                var expRhs = exp.rhs;
-                var thisValue = (this.rhs).value;
-                if (expRhs instanceof Facet.LiteralExpression) {
-                    var rValue = expRhs.value;
-                    if (rValue instanceof Facet.Set) {
-                        if (rValue.contains(thisValue)) {
-                            return exp;
-                        }
-                        else {
-                            return new Facet.InExpression({
-                                op: 'in',
-                                lhs: this.lhs,
-                                rhs: new Facet.LiteralExpression({
-                                    op: 'literal',
-                                    value: rValue.add(thisValue)
-                                })
-                            });
-                        }
-                    }
-                    else if (rValue instanceof Facet.TimeRange || rValue instanceof Facet.NumberRange) {
-                        if (rValue.contains(thisValue)) {
-                            return exp;
-                        }
-                        else {
-                            return null;
-                        }
-                    }
-                }
-                return null;
+                return exp.mergeOr(this);
             }
             else {
                 return null;
@@ -5743,8 +5778,8 @@ var Facet;
         function LessThanExpression(parameters) {
             _super.call(this, parameters, dummyObject);
             this._ensureOp("lessThan");
-            this._checkTypeOf('lhs', 'NUMBER');
-            this._checkTypeOf('rhs', 'NUMBER');
+            this._checkMatchingTypes();
+            this._checkNumberOrTime();
             this.type = 'BOOLEAN';
         }
         LessThanExpression.fromJS = function (parameters) {
@@ -5762,318 +5797,20 @@ var Facet;
         LessThanExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
             return "(" + lhsSQL + "<" + rhsSQL + ")";
         };
-        LessThanExpression.prototype.mergeAnd = function (exp) {
-            var expLeftHanded;
-            var expVal;
-            var thisLeftHanded;
-            var thisVal;
-            thisLeftHanded = this.checkLefthandedness();
-            if (thisLeftHanded === null)
-                return null;
-            if (exp instanceof Facet.BinaryExpression) {
-                expLeftHanded = exp.checkLefthandedness();
-                expVal = exp.getOperandOfType('literal')[0].value;
-                thisVal = this.getOperandOfType('literal')[0].value;
-                if (exp instanceof Facet.IsExpression) {
-                    if (thisLeftHanded) {
-                        if (expVal < thisVal) {
-                            return exp;
-                        }
-                        else {
-                            return Facet.Expression.FALSE;
-                        }
-                    }
-                    else {
-                        if (expVal > thisVal) {
-                            return exp;
-                        }
-                        else {
-                            return Facet.Expression.FALSE;
-                        }
-                    }
-                }
-                else if (exp instanceof LessThanExpression) {
-                    if (thisLeftHanded) {
-                        if (expLeftHanded) {
-                            return new LessThanExpression({
-                                op: 'lessThan',
-                                lhs: this.lhs,
-                                rhs: new Facet.LiteralExpression({
-                                    op: 'literal',
-                                    value: Math.min(thisVal, expVal)
-                                })
-                            });
-                        }
-                        else {
-                            if (thisVal <= expVal) {
-                                return Facet.Expression.FALSE;
-                            }
-                            else {
-                                return null;
-                            }
-                        }
-                    }
-                    else {
-                        if (expLeftHanded) {
-                            if (thisVal <= expVal) {
-                                return null;
-                            }
-                            else {
-                                return Facet.Expression.FALSE;
-                            }
-                        }
-                        else {
-                            return new LessThanExpression({
-                                op: 'lessThan',
-                                lhs: new Facet.LiteralExpression({
-                                    op: 'literal',
-                                    value: Math.max(thisVal, expVal)
-                                }),
-                                rhs: this.rhs
-                            });
-                        }
-                    }
-                }
-                else if (exp instanceof Facet.LessThanOrEqualExpression) {
-                    if (thisLeftHanded) {
-                        if (expLeftHanded) {
-                            if (thisVal <= expVal) {
-                                return new LessThanExpression({
-                                    op: 'lessThan',
-                                    lhs: this.lhs,
-                                    rhs: new Facet.LiteralExpression({
-                                        op: 'literal',
-                                        value: thisVal
-                                    })
-                                });
-                            }
-                            else {
-                                return new Facet.LessThanOrEqualExpression({
-                                    op: 'lessThanOrEqual',
-                                    lhs: this.lhs,
-                                    rhs: new Facet.LiteralExpression({
-                                        op: 'literal',
-                                        value: expVal
-                                    })
-                                });
-                            }
-                        }
-                        else {
-                            if (thisVal <= expVal) {
-                                return Facet.Expression.FALSE;
-                            }
-                            else {
-                                return new Facet.InExpression({
-                                    op: 'in',
-                                    lhs: this.lhs,
-                                    rhs: new Facet.LiteralExpression({
-                                        op: 'literal',
-                                        value: new Facet.NumberRange({ start: expVal, end: thisVal })
-                                    })
-                                });
-                            }
-                        }
-                    }
-                    else {
-                        if (expLeftHanded) {
-                            if (thisVal < expVal) {
-                                return null;
-                            }
-                            else {
-                                return Facet.Expression.FALSE;
-                            }
-                        }
-                        else {
-                            if (thisVal >= expVal) {
-                                return new LessThanExpression({
-                                    op: 'lessThan',
-                                    lhs: new Facet.LiteralExpression({
-                                        op: 'literal',
-                                        value: thisVal
-                                    }),
-                                    rhs: this.rhs
-                                });
-                            }
-                            else {
-                                return new Facet.LessThanOrEqualExpression({
-                                    op: 'lessThanOrEqual',
-                                    lhs: new Facet.LiteralExpression({
-                                        op: 'literal',
-                                        value: expVal
-                                    }),
-                                    rhs: this.rhs
-                                });
-                            }
-                        }
-                    }
-                }
+        LessThanExpression.prototype._specialSimplify = function (simpleLhs, simpleRhs) {
+            if (simpleLhs instanceof Facet.LiteralExpression) {
+                return (new Facet.InExpression({
+                    op: 'in',
+                    lhs: simpleRhs,
+                    rhs: Facet.$(Facet.Range.fromJS({ start: simpleLhs.value, end: null, bounds: '()' }))
+                })).simplify();
             }
-            return null;
-        };
-        LessThanExpression.prototype.mergeOr = function (exp) {
-            var expLeftHanded;
-            var expVal;
-            var thisLeftHanded;
-            var thisVal;
-            thisLeftHanded = this.checkLefthandedness();
-            if (thisLeftHanded === null)
-                return null;
-            if (exp instanceof Facet.BinaryExpression) {
-                expLeftHanded = exp.checkLefthandedness();
-                expVal = exp.getOperandOfType('literal')[0].value;
-                thisVal = this.getOperandOfType('literal')[0].value;
-                if (exp instanceof Facet.IsExpression) {
-                    if (thisLeftHanded) {
-                        if (expVal < thisVal) {
-                            return this;
-                        }
-                        else {
-                            return null;
-                        }
-                    }
-                    else {
-                        if (expVal > thisVal) {
-                            return this;
-                        }
-                        else {
-                            return null;
-                        }
-                    }
-                }
-                else if (exp instanceof LessThanExpression) {
-                    if (thisLeftHanded) {
-                        if (expLeftHanded) {
-                            return new LessThanExpression({
-                                op: 'lessThan',
-                                lhs: this.lhs,
-                                rhs: new Facet.LiteralExpression({
-                                    op: 'literal',
-                                    value: Math.max(thisVal, expVal)
-                                })
-                            });
-                        }
-                        else {
-                            if (thisVal < expVal) {
-                                return null;
-                            }
-                            else if (thisVal === expVal) {
-                                return new Facet.NotExpression({
-                                    op: 'not',
-                                    operand: new Facet.IsExpression({
-                                        op: 'is',
-                                        lhs: this.lhs,
-                                        rhs: new Facet.LiteralExpression({
-                                            op: 'literal',
-                                            value: thisVal
-                                        })
-                                    })
-                                });
-                            }
-                            else {
-                                return Facet.Expression.TRUE;
-                            }
-                        }
-                    }
-                    else {
-                        if (expLeftHanded) {
-                            if (thisVal < expVal) {
-                                return Facet.Expression.TRUE;
-                            }
-                            else if (thisVal === expVal) {
-                                return new Facet.NotExpression({
-                                    op: 'not',
-                                    operand: new Facet.IsExpression({
-                                        op: 'is',
-                                        lhs: this.rhs,
-                                        rhs: new Facet.LiteralExpression({
-                                            op: 'literal',
-                                            value: thisVal
-                                        })
-                                    })
-                                });
-                            }
-                            else {
-                                return null;
-                            }
-                        }
-                        else {
-                            return new LessThanExpression({
-                                op: 'lessThan',
-                                lhs: new Facet.LiteralExpression({
-                                    op: 'literal',
-                                    value: Math.min(thisVal, expVal)
-                                }),
-                                rhs: this.rhs
-                            });
-                        }
-                    }
-                }
-                else if (exp instanceof Facet.LessThanOrEqualExpression) {
-                    if (thisLeftHanded) {
-                        if (expLeftHanded) {
-                            if (thisVal <= expVal) {
-                                return new Facet.LessThanOrEqualExpression({
-                                    op: 'lessThanOrEqual',
-                                    lhs: this.lhs,
-                                    rhs: new Facet.LiteralExpression({
-                                        op: 'literal',
-                                        value: expVal
-                                    })
-                                });
-                            }
-                            else {
-                                return new LessThanExpression({
-                                    op: 'lessThan',
-                                    lhs: this.lhs,
-                                    rhs: new Facet.LiteralExpression({
-                                        op: 'literal',
-                                        value: thisVal
-                                    })
-                                });
-                            }
-                        }
-                        else {
-                            if (thisVal < expVal) {
-                                return null;
-                            }
-                            else {
-                                return Facet.Expression.TRUE;
-                            }
-                        }
-                    }
-                    else {
-                        if (expLeftHanded) {
-                            if (thisVal <= expVal) {
-                                return Facet.Expression.TRUE;
-                            }
-                            else {
-                                return null;
-                            }
-                        }
-                        else {
-                            if (thisVal >= expVal) {
-                                return new Facet.LessThanOrEqualExpression({
-                                    op: 'lessThanOrEqual',
-                                    lhs: new Facet.LiteralExpression({
-                                        op: 'literal',
-                                        value: expVal
-                                    }),
-                                    rhs: this.rhs
-                                });
-                            }
-                            else {
-                                return new LessThanExpression({
-                                    op: 'lessThan',
-                                    lhs: new Facet.LiteralExpression({
-                                        op: 'literal',
-                                        value: thisVal
-                                    }),
-                                    rhs: this.rhs
-                                });
-                            }
-                        }
-                    }
-                }
+            if (simpleRhs instanceof Facet.LiteralExpression) {
+                return (new Facet.InExpression({
+                    op: 'in',
+                    lhs: simpleLhs,
+                    rhs: Facet.$(Facet.Range.fromJS({ start: null, end: simpleRhs.value, bounds: '()' }))
+                })).simplify();
             }
             return null;
         };
@@ -6089,8 +5826,8 @@ var Facet;
         function LessThanOrEqualExpression(parameters) {
             _super.call(this, parameters, dummyObject);
             this._ensureOp("lessThanOrEqual");
-            this._checkTypeOf('lhs', 'NUMBER');
-            this._checkTypeOf('rhs', 'NUMBER');
+            this._checkMatchingTypes();
+            this._checkNumberOrTime();
             this.type = 'BOOLEAN';
         }
         LessThanOrEqualExpression.fromJS = function (parameters) {
@@ -6108,159 +5845,20 @@ var Facet;
         LessThanOrEqualExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
             return "(" + lhsSQL + "<=" + rhsSQL + ")";
         };
-        LessThanOrEqualExpression.prototype.mergeAnd = function (exp) {
-            var expLeftHanded;
-            var expVal;
-            var thisLeftHanded;
-            var thisVal;
-            thisLeftHanded = this.checkLefthandedness();
-            if (thisLeftHanded === null)
-                return null;
-            if (exp instanceof Facet.BinaryExpression) {
-                expLeftHanded = exp.checkLefthandedness();
-                expVal = exp.getOperandOfType('literal')[0].value;
-                thisVal = this.getOperandOfType('literal')[0].value;
-                if (exp instanceof Facet.IsExpression) {
-                    if (thisLeftHanded) {
-                        if (expVal < thisVal) {
-                            return exp;
-                        }
-                        else {
-                            return Facet.Expression.FALSE;
-                        }
-                    }
-                    else {
-                        if (expVal > thisVal) {
-                            return exp;
-                        }
-                        else {
-                            return Facet.Expression.FALSE;
-                        }
-                    }
-                }
-                else if (exp instanceof Facet.LessThanExpression) {
-                    return exp.mergeAnd(this);
-                }
-                else if (exp instanceof LessThanOrEqualExpression) {
-                    if (thisLeftHanded) {
-                        if (expLeftHanded) {
-                            return new LessThanOrEqualExpression({
-                                op: 'lessThanOrEqual',
-                                lhs: this.lhs,
-                                rhs: new Facet.LiteralExpression({
-                                    op: 'literal',
-                                    value: Math.min(thisVal, expVal)
-                                })
-                            });
-                        }
-                        else {
-                            if (thisVal < expVal) {
-                                return Facet.Expression.FALSE;
-                            }
-                            else {
-                                return null;
-                            }
-                        }
-                    }
-                    else {
-                        if (expLeftHanded) {
-                            if (thisVal > expVal) {
-                                return null;
-                            }
-                            else {
-                                return Facet.Expression.FALSE;
-                            }
-                        }
-                        else {
-                            return new LessThanOrEqualExpression({
-                                op: 'lessThanOrEqual',
-                                lhs: new Facet.LiteralExpression({
-                                    op: 'literal',
-                                    value: Math.max(thisVal, expVal)
-                                }),
-                                rhs: this.rhs
-                            });
-                        }
-                    }
-                }
+        LessThanOrEqualExpression.prototype._specialSimplify = function (simpleLhs, simpleRhs) {
+            if (simpleLhs instanceof Facet.LiteralExpression) {
+                return (new Facet.InExpression({
+                    op: 'in',
+                    lhs: simpleRhs,
+                    rhs: Facet.$(Facet.Range.fromJS({ start: simpleLhs.value, end: null, bounds: '[)' }))
+                })).simplify();
             }
-            return null;
-        };
-        LessThanOrEqualExpression.prototype.mergeOr = function (exp) {
-            var expLeftHanded;
-            var expVal;
-            var thisLeftHanded;
-            var thisVal;
-            thisLeftHanded = this.checkLefthandedness();
-            if (thisLeftHanded === null)
-                return null;
-            if (exp instanceof Facet.BinaryExpression) {
-                expLeftHanded = exp.checkLefthandedness();
-                expVal = exp.getOperandOfType('literal')[0].value;
-                thisVal = this.getOperandOfType('literal')[0].value;
-                if (exp instanceof Facet.IsExpression) {
-                    if (thisLeftHanded) {
-                        if (expVal <= thisVal) {
-                            return this;
-                        }
-                        else {
-                            return null;
-                        }
-                    }
-                    else {
-                        if (expVal >= thisVal) {
-                            return this;
-                        }
-                        else {
-                            return null;
-                        }
-                    }
-                }
-                else if (exp instanceof Facet.LessThanExpression) {
-                    return exp.mergeOr(this);
-                }
-                else if (exp instanceof LessThanOrEqualExpression) {
-                    if (thisLeftHanded) {
-                        if (expLeftHanded) {
-                            return new LessThanOrEqualExpression({
-                                op: 'lessThanOrEqual',
-                                lhs: this.lhs,
-                                rhs: new Facet.LiteralExpression({
-                                    op: 'literal',
-                                    value: Math.max(thisVal, expVal)
-                                })
-                            });
-                        }
-                        else {
-                            if (thisVal < expVal) {
-                                return null;
-                            }
-                            else {
-                                return Facet.Expression.TRUE;
-                            }
-                        }
-                    }
-                    else {
-                        if (expLeftHanded) {
-                            if (thisVal > expVal) {
-                                return null;
-                            }
-                            else {
-                                return Facet.Expression.TRUE;
-                            }
-                        }
-                        else {
-                            return new LessThanOrEqualExpression({
-                                op: 'lessThanOrEqual',
-                                lhs: new Facet.LiteralExpression({
-                                    op: 'literal',
-                                    value: Math.min(thisVal, expVal)
-                                }),
-                                rhs: this.rhs
-                            });
-                        }
-                    }
-                }
+            if (simpleRhs instanceof Facet.LiteralExpression) {
+                return (new Facet.InExpression({
+                    op: 'in',
+                    lhs: simpleLhs,
+                    rhs: Facet.$(Facet.Range.fromJS({ start: null, end: simpleRhs.value, bounds: '(]' }))
+                })).simplify();
             }
             return null;
         };
@@ -6281,7 +5879,7 @@ var Facet;
             if (typeof this.value === 'undefined') {
                 throw new TypeError("must have a `value`");
             }
-            this.type = Facet.getType(value);
+            this.type = Facet.getValueType(value);
             this.simple = true;
         }
         LiteralExpression.fromJS = function (parameters) {
@@ -6364,11 +5962,11 @@ var Facet;
                 case 'NUMBER_RANGE':
                     return String(value.start) + '/' + String(value.end);
                 case 'TIME':
-                    return Facet.dateToSQL(value);
+                    return Facet.timeToSQL(value);
                 case 'TIME_RANGE':
-                    return Facet.dateToSQL(value.start) + '/' + Facet.dateToSQL(value.end);
+                    return Facet.timeToSQL(value.start) + '/' + Facet.timeToSQL(value.end);
                 case 'SET/STRING':
-                    return '(' + value.getValues().map(function (v) { return JSON.stringify(v); }).join(',') + ')';
+                    return '(' + value.getElements().map(function (v) { return JSON.stringify(v); }).join(',') + ')';
                 default:
                     throw new Error("currently unsupported type: " + this.type);
             }
@@ -6639,7 +6237,7 @@ var Facet;
                 var num = operandFn(d);
                 if (num === null)
                     return null;
-                return Facet.NumberRange.fromNumber(num, size, offset);
+                return Facet.NumberRange.numberBucket(num, size, offset);
             };
         };
         NumberBucketExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
@@ -7005,7 +6603,7 @@ var Facet;
         TimeBucketExpression.prototype._getFnHelper = function (operandFn) {
             var duration = this.duration;
             var timezone = this.timezone;
-            return function (d) { return Facet.TimeRange.fromDate(operandFn(d), duration, timezone); };
+            return function (d) { return Facet.TimeRange.timeBucket(operandFn(d), duration, timezone); };
         };
         TimeBucketExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
             throw new Error("implement me");
@@ -9184,12 +8782,6 @@ var Facet;
 (function (Facet) {
     var Legacy;
     (function (Legacy) {
-        function smaller(a, b) {
-            return a < b ? a : b;
-        }
-        function larger(a, b) {
-            return a < b ? b : a;
-        }
         function intersectRanges(range1, range2) {
             var s = larger(range1[0], range2[0]);
             var l = smaller(range1[1], range2[1]);
@@ -15571,6 +15163,365 @@ var Facet;
             return driver;
         }
         Legacy.nativeDriver = nativeDriver;
+    })(Legacy = Facet.Legacy || (Facet.Legacy = {}));
+})(Facet || (Facet = {}));
+var Facet;
+(function (Facet) {
+    var Legacy;
+    (function (Legacy) {
+        function makeFacetFilter(expression) {
+            if (expression.type !== 'BOOLEAN')
+                return null;
+            if (expression instanceof Facet.LiteralExpression) {
+                return {
+                    type: String(expression.value)
+                };
+            }
+            else if (expression instanceof Facet.IsExpression) {
+                if (expression.lhs.isOp('ref') && expression.rhs.isOp('literal')) {
+                    return {
+                        type: 'is',
+                        attribute: expression.lhs.name,
+                        value: expression.rhs.value
+                    };
+                }
+                else {
+                    return null;
+                }
+            }
+            else if (expression instanceof Facet.InExpression) {
+                if (expression.lhs.isOp('ref') && expression.rhs.isOp('literal')) {
+                    if (expression.rhs.type === 'SET') {
+                        return {
+                            type: 'in',
+                            attribute: expression.lhs.name,
+                            values: expression.rhs.value.toJS().values
+                        };
+                    }
+                    else if (expression.rhs.type === 'TIME_RANGE' || expression.rhs.type === 'NUMBER_RANGE') {
+                        var timeRange = expression.rhs.value;
+                        return {
+                            type: 'within',
+                            attribute: expression.lhs.name,
+                            range: [timeRange.start, timeRange.end]
+                        };
+                    }
+                    else {
+                        return null;
+                    }
+                }
+                else {
+                    return null;
+                }
+            }
+            else if (expression instanceof Facet.NotExpression) {
+                var subFilter = makeFacetFilter(expression.operand);
+                if (subFilter) {
+                    return {
+                        type: 'not',
+                        filter: subFilter
+                    };
+                }
+                else {
+                    return null;
+                }
+            }
+            else if (expression instanceof Facet.AndExpression) {
+                var subFilters = expression.operands.map(makeFacetFilter);
+                if (subFilters.every(Boolean)) {
+                    return {
+                        type: 'and',
+                        filters: subFilters
+                    };
+                }
+                else {
+                    return null;
+                }
+            }
+            else if (expression instanceof Facet.OrExpression) {
+                var subFilters = expression.operands.map(makeFacetFilter);
+                if (subFilters.every(Boolean)) {
+                    return {
+                        type: 'or',
+                        filters: subFilters
+                    };
+                }
+                else {
+                    return null;
+                }
+            }
+            return null;
+        }
+        function makeFacetApply(expression) {
+            if (expression.type !== 'NUMBER')
+                return null;
+            if (expression instanceof Facet.LiteralExpression) {
+                return {
+                    aggregate: 'constant',
+                    value: expression.value
+                };
+            }
+            else if (expression instanceof Facet.AggregateExpression) {
+                if (expression.fn === 'count') {
+                    return { aggregate: 'count' };
+                }
+                var attribute = expression.attribute;
+                if (attribute instanceof Facet.RefExpression) {
+                    return {
+                        aggregate: expression.fn,
+                        attribute: attribute.name
+                    };
+                }
+                else {
+                    return null;
+                }
+            }
+            return null;
+        }
+        function makeFacetSplit(expression, datasetName) {
+            if (expression.type !== 'DATASET')
+                return null;
+            if (expression instanceof Facet.LabelExpression) {
+                var name = expression.name;
+                var splitAgg = expression.operand;
+                if (splitAgg instanceof Facet.AggregateExpression) {
+                    var datasetRef = splitAgg.operand;
+                    if (datasetRef instanceof Facet.RefExpression) {
+                        if (datasetRef.name !== datasetName)
+                            return null;
+                    }
+                    else {
+                        return null;
+                    }
+                    var attr = splitAgg.attribute;
+                    if (attr instanceof Facet.RefExpression) {
+                        return {
+                            name: name,
+                            bucket: 'identity',
+                            attribute: attr.name
+                        };
+                    }
+                    else if (attr instanceof Facet.NumberBucketExpression) {
+                        var subAttr = attr.operand;
+                        if (subAttr instanceof Facet.RefExpression) {
+                            return {
+                                name: name,
+                                bucket: 'continuous',
+                                attribute: subAttr.name,
+                                size: attr.size,
+                                offset: attr.offset
+                            };
+                        }
+                        else {
+                            return null;
+                        }
+                    }
+                    else if (attr instanceof Facet.TimeBucketExpression) {
+                        var subAttr = attr.operand;
+                        if (subAttr instanceof Facet.RefExpression) {
+                            return {
+                                name: name,
+                                bucket: 'timePeriod',
+                                attribute: subAttr.name,
+                                period: attr.duration,
+                                timezone: attr.timezone
+                            };
+                        }
+                        else {
+                            return null;
+                        }
+                    }
+                }
+                else {
+                    return null;
+                }
+            }
+            else {
+                return null;
+            }
+        }
+        function getFilter(expression) {
+            if (expression.type !== 'DATASET')
+                return null;
+            if (expression instanceof Facet.LiteralExpression) {
+                return { type: 'true' };
+            }
+            else if (expression instanceof Facet.ActionsExpression) {
+                var actions = expression.actions;
+                if (actions.some(function (action) { return action.action !== 'filter'; }))
+                    return null;
+                return makeFacetFilter(actions[0].expression);
+            }
+            else {
+                return null;
+            }
+        }
+        function legacyTranslator(expression) {
+            if (expression instanceof Facet.ActionsExpression) {
+                if (!expression.operand.isOp('literal') || expression.operand.type !== 'DATASET') {
+                    return null;
+                }
+                var query = [];
+                var datasetName;
+                var actions = expression.actions;
+                var action = actions[0];
+                if (action instanceof Facet.DefAction) {
+                    if (action.expression.type !== 'DATASET')
+                        throw new Error("can not have non DATASET def actions");
+                    var filter = getFilter(action.expression);
+                    if (filter) {
+                        datasetName = action.name;
+                        if (filter.type !== 'true') {
+                            filter.operation = 'filter';
+                            query.push(filter);
+                        }
+                    }
+                    else {
+                        throw new Error('unsupported filter');
+                    }
+                }
+                else {
+                    throw new Error('must have dataset');
+                }
+                var splitPart = null;
+                for (var i = 1; i < actions.length; i++) {
+                    var action = actions[i];
+                    if (action instanceof Facet.ApplyAction) {
+                        if (action.expression.type === 'NUMBER') {
+                            var apply = makeFacetApply(action.expression);
+                            if (apply) {
+                                apply.operation = 'apply';
+                                apply.name = action.name;
+                                query.push(apply);
+                            }
+                            else {
+                                throw new Error('unsupported apply');
+                            }
+                        }
+                        else if (action.expression.type === 'DATASET') {
+                            if (splitPart)
+                                throw new Error("Can have at most one split");
+                            splitPart = legacyTranslatorSplit(action.expression, datasetName);
+                        }
+                        else {
+                            throw new Error("can not have non NUMBER or DATASET apply actions");
+                        }
+                    }
+                }
+            }
+            else {
+                return null;
+            }
+            return Legacy.FacetQuery.fromJS(query.concat(splitPart || []));
+        }
+        Legacy.legacyTranslator = legacyTranslator;
+        function legacyTranslatorSplit(expression, datasetName) {
+            var query = [];
+            if (expression instanceof Facet.ActionsExpression) {
+                var split = makeFacetSplit(expression.operand, datasetName);
+                if (split) {
+                    split.operation = 'split';
+                    query.push(split);
+                }
+                else {
+                    throw new Error('unsupported split');
+                }
+                var actions = expression.actions;
+                var action = actions[0];
+                if (action instanceof Facet.DefAction) {
+                    if (action.expression.type !== 'DATASET')
+                        throw new Error("must be filtered on the datasource");
+                }
+                else {
+                    throw new Error('must have dataset');
+                }
+                var combine = {
+                    operation: 'combine'
+                };
+                var splitPart = null;
+                for (var i = 1; i < actions.length; i++) {
+                    var action = actions[i];
+                    if (action instanceof Facet.ApplyAction) {
+                        if (action.expression.type === 'NUMBER') {
+                            var apply = makeFacetApply(action.expression);
+                            if (apply) {
+                                apply.operation = 'apply';
+                                apply.name = action.name;
+                                query.push(apply);
+                            }
+                            else {
+                                throw new Error('unsupported apply');
+                            }
+                        }
+                        else if (action.expression.type === 'DATASET') {
+                            if (splitPart)
+                                throw new Error("Can have at most one split");
+                            splitPart = legacyTranslatorSplit(action.expression, datasetName);
+                        }
+                        else {
+                            throw new Error("can not have non NUMBER or DATASET apply actions");
+                        }
+                    }
+                    else if (action instanceof Facet.SortAction) {
+                        var sortExpression = action.expression;
+                        if (sortExpression instanceof Facet.RefExpression) {
+                            combine.method = 'slice';
+                            combine.sort = {
+                                compare: 'natural',
+                                prop: sortExpression.name,
+                                direction: action.direction
+                            };
+                        }
+                    }
+                    else if (action instanceof Facet.LimitAction) {
+                        combine.limit = action.limit;
+                    }
+                }
+                return query.concat([combine], splitPart || []);
+            }
+            else {
+                throw new Error('must split on actions');
+            }
+        }
+        function segmentTreesToDataset(segmentTrees, splitNames) {
+            var splitName = splitNames[0];
+            var splitNamesTail = splitNames.slice(1);
+            return new Facet.NativeDataset({
+                source: 'native',
+                data: segmentTrees.map(function (segmentTree) {
+                    var prop = segmentTree.prop;
+                    var datum = {};
+                    for (var k in prop) {
+                        var v = prop[k];
+                        if (!Array.isArray(v)) {
+                            datum[k] = v;
+                        }
+                        else if (typeof v[0] === 'number') {
+                            datum[k] = Facet.NumberRange.fromJS({ start: v[0], end: v[1] });
+                        }
+                        else {
+                            datum[k] = Facet.TimeRange.fromJS({ start: v[0], end: v[1] });
+                        }
+                    }
+                    if (segmentTree.splits) {
+                        datum[splitName] = segmentTreesToDataset(segmentTree.splits, splitNamesTail);
+                    }
+                    return datum;
+                })
+            });
+        }
+        function legacyConverter(legacyDriver) {
+            return function (ex) {
+                var legacyQuery = legacyTranslator(ex);
+                return legacyDriver({
+                    query: legacyQuery
+                }).then(function (segmentTree) {
+                    var splitNames = legacyQuery.getSplits().map(function (split) { return split.name; });
+                    return segmentTreesToDataset([segmentTree], splitNames);
+                });
+            };
+        }
+        Legacy.legacyConverter = legacyConverter;
     })(Legacy = Facet.Legacy || (Facet.Legacy = {}));
 })(Facet || (Facet = {}));
 if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
@@ -23213,7 +23164,17 @@ module.exports = (function() {
                       duration: getName(params[0])
                     };
                     if (params.length === 2) operand.timezone = getName(params[1]);
-                    break
+                    break;
+
+                  case 'substr':
+                    if (params.length !== 2) error(op + ' must have 2 parameters');
+                    operand = {
+                      op: op,
+                      operand: operand,
+                      position: getNumber(params[0]),
+                      length: getNumber(params[1])
+                    };
+                    break;
 
                   case 'timePart':
                     if (params.length !== 1 && params.length !== 2) error(op + ' must have 1 or 2 parameter');
@@ -23223,7 +23184,7 @@ module.exports = (function() {
                       part: getName(params[0])
                     };
                     if (params.length === 2) operand.timezone = getName(params[1]);
-                    break
+                    break;
 
                   case 'filter':
                     if (params.length !== 1) error(op + ' must have 1 parameter');
@@ -23279,10 +23240,10 @@ module.exports = (function() {
                     if (params.length !== 2 && params.length !== 3) error(op + ' must have 2 or 3 parameter');
                     var attribute = params[0];
                     var name = getName(params[1]);
-                    var dataName = params[2];
-                    if (!dataName) {
-                      if (operand.op !== 'ref') error("could not guess data name in `split`, please provide one explicitly");
-                      dataName = operand.name;
+                    var newDataName = params[2];
+                    var dataName = operand.op === 'ref' ? operand.name : null;
+                    if (!dataName && !newDataName) {
+                      error("could not guess data name in `split`, please provide one explicitly");
                     }
                     operand = {
                       op: 'actions',
@@ -23294,10 +23255,10 @@ module.exports = (function() {
                       actions: [
                         {
                           action: 'def',
-                          name: dataName,
+                          name: newDataName || dataName,
                           expression: {
                             op: 'actions',
-                            operand: { op: 'ref', name: '^' + dataName },
+                            operand: { op: 'ref', name: '^' + (dataName || newDataName) },
                             actions: [{
                               action: 'filter',
                               expression: {
@@ -26310,7 +26271,7 @@ module.exports = (function() {
         peg$c9 = function(ex, as) {
               return {
                 action: 'apply',
-                name: as || text().toLowerCase().replace(/^\W+|\W+$/g, '').replace(/\W+/g, '_'),
+                name: as || text().replace(/^\W+|\W+$/g, '').replace(/\W+/g, '_'),
                 expression: ex
               };
             },
@@ -26325,7 +26286,16 @@ module.exports = (function() {
         peg$c18 = function(head, tail) { return naryExpressionFactory('or', head, tail); },
         peg$c19 = function(head, tail) { return naryExpressionFactory('and', head, tail); },
         peg$c20 = function(ex) { return { op: 'not', operand: ex }; },
-        peg$c21 = function(lhs, rest) {
+        peg$c21 = function(lhs, start, end) {
+              if (start.op !== 'literal') error('between start must be a literal');
+              if (end.op !== 'literal') error('between end must be a literal');
+              return {
+                op: 'in',
+                lhs: lhs,
+                rhs: { start: start.value, end: end.value, bounds: '[]' }
+              };
+            },
+        peg$c22 = function(lhs, rest) {
               if (!rest) return lhs;
               var op = rest[1];
               var rhs = rest[3];
@@ -26335,177 +26305,192 @@ module.exports = (function() {
                 return { op: op, lhs: lhs, rhs: rhs };
               }
             },
-        peg$c22 = "=",
-        peg$c23 = { type: "literal", value: "=", description: "\"=\"" },
-        peg$c24 = function() { return 'is'; },
-        peg$c25 = "<>",
-        peg$c26 = { type: "literal", value: "<>", description: "\"<>\"" },
-        peg$c27 = function() { return 'isnt'; },
-        peg$c28 = "!=",
-        peg$c29 = { type: "literal", value: "!=", description: "\"!=\"" },
-        peg$c30 = "in",
-        peg$c31 = { type: "literal", value: "in", description: "\"in\"" },
-        peg$c32 = function() { return 'in'; },
-        peg$c33 = "<=",
-        peg$c34 = { type: "literal", value: "<=", description: "\"<=\"" },
-        peg$c35 = function() { return 'lessThanOrEqual'; },
-        peg$c36 = ">=",
-        peg$c37 = { type: "literal", value: ">=", description: "\">=\"" },
-        peg$c38 = function() { return 'greaterThanOrEqual'; },
-        peg$c39 = "<",
-        peg$c40 = { type: "literal", value: "<", description: "\"<\"" },
-        peg$c41 = function() { return 'lessThan'; },
-        peg$c42 = ">",
-        peg$c43 = { type: "literal", value: ">", description: "\">\"" },
-        peg$c44 = function() { return 'greaterThan'; },
-        peg$c45 = function(head, tail) { return naryExpressionFactory('add', head, tail, '-', 'negate'); },
-        peg$c46 = /^[+\-]/,
-        peg$c47 = { type: "class", value: "[+\\-]", description: "[+\\-]" },
-        peg$c48 = function(head, tail) { return naryExpressionFactory('multiply', head, tail, '/', 'reciprocate'); },
-        peg$c49 = /^[*\/]/,
-        peg$c50 = { type: "class", value: "[*\\/]", description: "[*\\/]" },
-        peg$c51 = "(",
-        peg$c52 = { type: "literal", value: "(", description: "\"(\"" },
-        peg$c53 = ")",
-        peg$c54 = { type: "literal", value: ")", description: "\")\"" },
-        peg$c55 = function(ex) { return ex; },
-        peg$c56 = function(subQuery) { return subQuery; },
-        peg$c57 = "()",
-        peg$c58 = { type: "literal", value: "()", description: "\"()\"" },
-        peg$c59 = function() { return { op: 'aggregate', fn: 'count', operand: dataRef }; },
-        peg$c60 = function(fn, ex) { return { op: 'aggregate', fn: fn, operand: dataRef, attribute: ex }; },
-        peg$c61 = function(operand, duration, timezone) { return { op: 'timeBucket', operand: operand, duration: duration, timezone: timezone }; },
-        peg$c62 = function(operand, size, offset) { return { op: 'numberBucket', operand: operand, size: size, offset: offset }; },
-        peg$c63 = function(name) { return reserved(name); },
-        peg$c64 = void 0,
-        peg$c65 = function(name) { return { op: "ref", name: name }; },
-        peg$c66 = "`",
-        peg$c67 = { type: "literal", value: "`", description: "\"`\"" },
-        peg$c68 = function(number) { return { op: "literal", value: number }; },
-        peg$c69 = function(string) { return { op: "literal", value: string }; },
-        peg$c70 = function(v) { return { op: "literal", value: v }; },
-        peg$c71 = { type: "other", description: "String" },
-        peg$c72 = "'",
-        peg$c73 = { type: "literal", value: "'", description: "\"'\"" },
-        peg$c74 = function(chars) { return chars; },
-        peg$c75 = function(chars) { error("Unmatched single quote"); },
-        peg$c76 = "\"",
-        peg$c77 = { type: "literal", value: "\"", description: "\"\\\"\"" },
-        peg$c78 = function(chars) { error("Unmatched double quote"); },
-        peg$c79 = "null",
-        peg$c80 = { type: "literal", value: "NULL", description: "\"NULL\"" },
-        peg$c81 = function() { return null; },
-        peg$c82 = "true",
-        peg$c83 = { type: "literal", value: "TRUE", description: "\"TRUE\"" },
-        peg$c84 = function() { return true; },
-        peg$c85 = "false",
-        peg$c86 = { type: "literal", value: "FALSE", description: "\"FALSE\"" },
-        peg$c87 = function() { return false; },
-        peg$c88 = "select",
-        peg$c89 = { type: "literal", value: "SELECT", description: "\"SELECT\"" },
-        peg$c90 = "from",
-        peg$c91 = { type: "literal", value: "FROM", description: "\"FROM\"" },
-        peg$c92 = "as",
-        peg$c93 = { type: "literal", value: "AS", description: "\"AS\"" },
-        peg$c94 = "on",
-        peg$c95 = { type: "literal", value: "ON", description: "\"ON\"" },
-        peg$c96 = "left",
-        peg$c97 = { type: "literal", value: "LEFT", description: "\"LEFT\"" },
-        peg$c98 = "inner",
-        peg$c99 = { type: "literal", value: "INNER", description: "\"INNER\"" },
-        peg$c100 = "join",
-        peg$c101 = { type: "literal", value: "JOIN", description: "\"JOIN\"" },
-        peg$c102 = "union",
-        peg$c103 = { type: "literal", value: "UNION", description: "\"UNION\"" },
-        peg$c104 = "where",
-        peg$c105 = { type: "literal", value: "WHERE", description: "\"WHERE\"" },
-        peg$c106 = "group",
-        peg$c107 = { type: "literal", value: "GROUP", description: "\"GROUP\"" },
-        peg$c108 = "by",
-        peg$c109 = { type: "literal", value: "BY", description: "\"BY\"" },
-        peg$c110 = "order",
-        peg$c111 = { type: "literal", value: "ORDER", description: "\"ORDER\"" },
-        peg$c112 = "having",
-        peg$c113 = { type: "literal", value: "HAVING", description: "\"HAVING\"" },
-        peg$c114 = "limit",
-        peg$c115 = { type: "literal", value: "LIMIT", description: "\"LIMIT\"" },
-        peg$c116 = "asc",
-        peg$c117 = { type: "literal", value: "ASC", description: "\"ASC\"" },
-        peg$c118 = function() { return 'ascending';  },
-        peg$c119 = "desc",
-        peg$c120 = { type: "literal", value: "DESC", description: "\"DESC\"" },
-        peg$c121 = function() { return 'descending'; },
-        peg$c122 = "between",
-        peg$c123 = { type: "literal", value: "BETWEEN", description: "\"BETWEEN\"" },
-        peg$c124 = { type: "literal", value: "IN", description: "\"IN\"" },
-        peg$c125 = "is",
-        peg$c126 = { type: "literal", value: "IS", description: "\"IS\"" },
-        peg$c127 = "like",
-        peg$c128 = { type: "literal", value: "LIKE", description: "\"LIKE\"" },
-        peg$c129 = "contains",
-        peg$c130 = { type: "literal", value: "CONTAINS", description: "\"CONTAINS\"" },
-        peg$c131 = "not",
-        peg$c132 = { type: "literal", value: "NOT", description: "\"NOT\"" },
-        peg$c133 = "and",
-        peg$c134 = { type: "literal", value: "AND", description: "\"AND\"" },
-        peg$c135 = "or",
-        peg$c136 = { type: "literal", value: "OR", description: "\"OR\"" },
-        peg$c137 = "count",
-        peg$c138 = { type: "literal", value: "COUNT", description: "\"COUNT\"" },
-        peg$c139 = function() { return 'count'; },
-        peg$c140 = "sum",
-        peg$c141 = { type: "literal", value: "SUM", description: "\"SUM\"" },
-        peg$c142 = function() { return 'sum'; },
-        peg$c143 = "avg",
-        peg$c144 = { type: "literal", value: "AVG", description: "\"AVG\"" },
-        peg$c145 = function() { return 'average'; },
-        peg$c146 = "min",
-        peg$c147 = { type: "literal", value: "MIN", description: "\"MIN\"" },
-        peg$c148 = function() { return 'min'; },
-        peg$c149 = "max",
-        peg$c150 = { type: "literal", value: "MAX", description: "\"MAX\"" },
-        peg$c151 = function() { return 'max'; },
-        peg$c152 = "time_bucket",
-        peg$c153 = { type: "literal", value: "TIME_BUCKET", description: "\"TIME_BUCKET\"" },
-        peg$c154 = "number_bucket",
-        peg$c155 = { type: "literal", value: "NUMBER_BUCKET", description: "\"NUMBER_BUCKET\"" },
-        peg$c156 = /^[A-Za-z_]/,
-        peg$c157 = { type: "class", value: "[A-Za-z_]", description: "[A-Za-z_]" },
-        peg$c158 = { type: "other", description: "Number" },
-        peg$c159 = function(n) { return parseFloat(n); },
-        peg$c160 = "-",
-        peg$c161 = { type: "literal", value: "-", description: "\"-\"" },
-        peg$c162 = /^[1-9]/,
-        peg$c163 = { type: "class", value: "[1-9]", description: "[1-9]" },
-        peg$c164 = ".",
-        peg$c165 = { type: "literal", value: ".", description: "\".\"" },
-        peg$c166 = "e",
-        peg$c167 = { type: "literal", value: "e", description: "\"e\"" },
-        peg$c168 = /^[0-9]/,
-        peg$c169 = { type: "class", value: "[0-9]", description: "[0-9]" },
-        peg$c170 = { type: "other", description: "Name" },
-        peg$c171 = /^[a-zA-Z_]/,
-        peg$c172 = { type: "class", value: "[a-zA-Z_]", description: "[a-zA-Z_]" },
-        peg$c173 = /^[a-z0-9A-Z_]/,
-        peg$c174 = { type: "class", value: "[a-z0-9A-Z_]", description: "[a-z0-9A-Z_]" },
-        peg$c175 = { type: "other", description: "RefName" },
-        peg$c176 = "^",
-        peg$c177 = { type: "literal", value: "^", description: "\"^\"" },
-        peg$c178 = { type: "other", description: "NotSQuote" },
-        peg$c179 = /^[^']/,
-        peg$c180 = { type: "class", value: "[^']", description: "[^']" },
-        peg$c181 = { type: "other", description: "NotDQuote" },
-        peg$c182 = /^[^"]/,
-        peg$c183 = { type: "class", value: "[^\"]", description: "[^\"]" },
-        peg$c184 = { type: "other", description: "Whitespace" },
-        peg$c185 = /^[ \t\r\n]/,
-        peg$c186 = { type: "class", value: "[ \\t\\r\\n]", description: "[ \\t\\r\\n]" },
-        peg$c187 = { type: "other", description: "Mandatory Whitespace" },
-        peg$c188 = "--",
-        peg$c189 = { type: "literal", value: "--", description: "\"--\"" },
-        peg$c190 = { type: "any", description: "any character" },
-        peg$c191 = /^[\n\r]/,
-        peg$c192 = { type: "class", value: "[\\n\\r]", description: "[\\n\\r]" },
+        peg$c23 = "=",
+        peg$c24 = { type: "literal", value: "=", description: "\"=\"" },
+        peg$c25 = function() { return 'is'; },
+        peg$c26 = "<>",
+        peg$c27 = { type: "literal", value: "<>", description: "\"<>\"" },
+        peg$c28 = function() { return 'isnt'; },
+        peg$c29 = "!=",
+        peg$c30 = { type: "literal", value: "!=", description: "\"!=\"" },
+        peg$c31 = "in",
+        peg$c32 = { type: "literal", value: "in", description: "\"in\"" },
+        peg$c33 = function() { return 'in'; },
+        peg$c34 = "<=",
+        peg$c35 = { type: "literal", value: "<=", description: "\"<=\"" },
+        peg$c36 = function() { return 'lessThanOrEqual'; },
+        peg$c37 = ">=",
+        peg$c38 = { type: "literal", value: ">=", description: "\">=\"" },
+        peg$c39 = function() { return 'greaterThanOrEqual'; },
+        peg$c40 = "<",
+        peg$c41 = { type: "literal", value: "<", description: "\"<\"" },
+        peg$c42 = function() { return 'lessThan'; },
+        peg$c43 = ">",
+        peg$c44 = { type: "literal", value: ">", description: "\">\"" },
+        peg$c45 = function() { return 'greaterThan'; },
+        peg$c46 = function(head, tail) { return naryExpressionFactory('add', head, tail, '-', 'negate'); },
+        peg$c47 = /^[+\-]/,
+        peg$c48 = { type: "class", value: "[+\\-]", description: "[+\\-]" },
+        peg$c49 = function(head, tail) { return naryExpressionFactory('multiply', head, tail, '/', 'reciprocate'); },
+        peg$c50 = /^[*\/]/,
+        peg$c51 = { type: "class", value: "[*\\/]", description: "[*\\/]" },
+        peg$c52 = "(",
+        peg$c53 = { type: "literal", value: "(", description: "\"(\"" },
+        peg$c54 = ")",
+        peg$c55 = { type: "literal", value: ")", description: "\")\"" },
+        peg$c56 = function(ex) { return ex; },
+        peg$c57 = function(subQuery) { return subQuery; },
+        peg$c58 = "()",
+        peg$c59 = { type: "literal", value: "()", description: "\"()\"" },
+        peg$c60 = function() { return { op: 'aggregate', fn: 'count', operand: dataRef }; },
+        peg$c61 = function(fn, ex) { return { op: 'aggregate', fn: fn, operand: dataRef, attribute: ex }; },
+        peg$c62 = function(operand, duration, timezone) { return { op: 'timeBucket', operand: operand, duration: duration, timezone: timezone }; },
+        peg$c63 = function(operand, size, offset) { return { op: 'numberBucket', operand: operand, size: size, offset: offset }; },
+        peg$c64 = function(operand, position, length) { return { op: 'substr', operand: operand, position: position, length: length }; },
+        peg$c65 = function(ref) { return { op: "ref", name: ref }; },
+        peg$c66 = function(number) { return { op: "literal", value: number }; },
+        peg$c67 = function(string) {
+              if (dateRegExp.test(string)) {
+                var date = new Date(string);
+                if (!isNaN(date)) {
+                  return { op: "literal", value: date };
+                } else {
+                  return { op: "literal", value: string };
+                }
+              } else {
+                return { op: "literal", value: string };
+              }
+            },
+        peg$c68 = function(v) { return { op: "literal", value: v }; },
+        peg$c69 = function(name) { return reserved(name); },
+        peg$c70 = void 0,
+        peg$c71 = function(name) { return name },
+        peg$c72 = "`",
+        peg$c73 = { type: "literal", value: "`", description: "\"`\"" },
+        peg$c74 = { type: "other", description: "String" },
+        peg$c75 = "'",
+        peg$c76 = { type: "literal", value: "'", description: "\"'\"" },
+        peg$c77 = function(chars) { return chars; },
+        peg$c78 = function(chars) { error("Unmatched single quote"); },
+        peg$c79 = "\"",
+        peg$c80 = { type: "literal", value: "\"", description: "\"\\\"\"" },
+        peg$c81 = function(chars) { error("Unmatched double quote"); },
+        peg$c82 = "null",
+        peg$c83 = { type: "literal", value: "NULL", description: "\"NULL\"" },
+        peg$c84 = function() { return null; },
+        peg$c85 = "true",
+        peg$c86 = { type: "literal", value: "TRUE", description: "\"TRUE\"" },
+        peg$c87 = function() { return true; },
+        peg$c88 = "false",
+        peg$c89 = { type: "literal", value: "FALSE", description: "\"FALSE\"" },
+        peg$c90 = function() { return false; },
+        peg$c91 = "select",
+        peg$c92 = { type: "literal", value: "SELECT", description: "\"SELECT\"" },
+        peg$c93 = "from",
+        peg$c94 = { type: "literal", value: "FROM", description: "\"FROM\"" },
+        peg$c95 = "as",
+        peg$c96 = { type: "literal", value: "AS", description: "\"AS\"" },
+        peg$c97 = "on",
+        peg$c98 = { type: "literal", value: "ON", description: "\"ON\"" },
+        peg$c99 = "left",
+        peg$c100 = { type: "literal", value: "LEFT", description: "\"LEFT\"" },
+        peg$c101 = "inner",
+        peg$c102 = { type: "literal", value: "INNER", description: "\"INNER\"" },
+        peg$c103 = "join",
+        peg$c104 = { type: "literal", value: "JOIN", description: "\"JOIN\"" },
+        peg$c105 = "union",
+        peg$c106 = { type: "literal", value: "UNION", description: "\"UNION\"" },
+        peg$c107 = "where",
+        peg$c108 = { type: "literal", value: "WHERE", description: "\"WHERE\"" },
+        peg$c109 = "group",
+        peg$c110 = { type: "literal", value: "GROUP", description: "\"GROUP\"" },
+        peg$c111 = "by",
+        peg$c112 = { type: "literal", value: "BY", description: "\"BY\"" },
+        peg$c113 = "order",
+        peg$c114 = { type: "literal", value: "ORDER", description: "\"ORDER\"" },
+        peg$c115 = "having",
+        peg$c116 = { type: "literal", value: "HAVING", description: "\"HAVING\"" },
+        peg$c117 = "limit",
+        peg$c118 = { type: "literal", value: "LIMIT", description: "\"LIMIT\"" },
+        peg$c119 = "asc",
+        peg$c120 = { type: "literal", value: "ASC", description: "\"ASC\"" },
+        peg$c121 = function() { return 'ascending';  },
+        peg$c122 = "desc",
+        peg$c123 = { type: "literal", value: "DESC", description: "\"DESC\"" },
+        peg$c124 = function() { return 'descending'; },
+        peg$c125 = "between",
+        peg$c126 = { type: "literal", value: "BETWEEN", description: "\"BETWEEN\"" },
+        peg$c127 = { type: "literal", value: "IN", description: "\"IN\"" },
+        peg$c128 = "is",
+        peg$c129 = { type: "literal", value: "IS", description: "\"IS\"" },
+        peg$c130 = "like",
+        peg$c131 = { type: "literal", value: "LIKE", description: "\"LIKE\"" },
+        peg$c132 = "contains",
+        peg$c133 = { type: "literal", value: "CONTAINS", description: "\"CONTAINS\"" },
+        peg$c134 = "not",
+        peg$c135 = { type: "literal", value: "NOT", description: "\"NOT\"" },
+        peg$c136 = "and",
+        peg$c137 = { type: "literal", value: "AND", description: "\"AND\"" },
+        peg$c138 = "or",
+        peg$c139 = { type: "literal", value: "OR", description: "\"OR\"" },
+        peg$c140 = "count",
+        peg$c141 = { type: "literal", value: "COUNT", description: "\"COUNT\"" },
+        peg$c142 = function() { return 'count'; },
+        peg$c143 = "sum",
+        peg$c144 = { type: "literal", value: "SUM", description: "\"SUM\"" },
+        peg$c145 = function() { return 'sum'; },
+        peg$c146 = "avg",
+        peg$c147 = { type: "literal", value: "AVG", description: "\"AVG\"" },
+        peg$c148 = function() { return 'average'; },
+        peg$c149 = "min",
+        peg$c150 = { type: "literal", value: "MIN", description: "\"MIN\"" },
+        peg$c151 = function() { return 'min'; },
+        peg$c152 = "max",
+        peg$c153 = { type: "literal", value: "MAX", description: "\"MAX\"" },
+        peg$c154 = function() { return 'max'; },
+        peg$c155 = "time_bucket",
+        peg$c156 = { type: "literal", value: "TIME_BUCKET", description: "\"TIME_BUCKET\"" },
+        peg$c157 = "number_bucket",
+        peg$c158 = { type: "literal", value: "NUMBER_BUCKET", description: "\"NUMBER_BUCKET\"" },
+        peg$c159 = "substr",
+        peg$c160 = { type: "literal", value: "SUBSTR", description: "\"SUBSTR\"" },
+        peg$c161 = /^[A-Za-z_]/,
+        peg$c162 = { type: "class", value: "[A-Za-z_]", description: "[A-Za-z_]" },
+        peg$c163 = { type: "other", description: "Number" },
+        peg$c164 = function(n) { return parseFloat(n); },
+        peg$c165 = "-",
+        peg$c166 = { type: "literal", value: "-", description: "\"-\"" },
+        peg$c167 = /^[1-9]/,
+        peg$c168 = { type: "class", value: "[1-9]", description: "[1-9]" },
+        peg$c169 = ".",
+        peg$c170 = { type: "literal", value: ".", description: "\".\"" },
+        peg$c171 = "e",
+        peg$c172 = { type: "literal", value: "e", description: "\"e\"" },
+        peg$c173 = /^[0-9]/,
+        peg$c174 = { type: "class", value: "[0-9]", description: "[0-9]" },
+        peg$c175 = { type: "other", description: "Name" },
+        peg$c176 = /^[a-zA-Z_]/,
+        peg$c177 = { type: "class", value: "[a-zA-Z_]", description: "[a-zA-Z_]" },
+        peg$c178 = /^[a-z0-9A-Z_]/,
+        peg$c179 = { type: "class", value: "[a-z0-9A-Z_]", description: "[a-z0-9A-Z_]" },
+        peg$c180 = { type: "other", description: "RefName" },
+        peg$c181 = "^",
+        peg$c182 = { type: "literal", value: "^", description: "\"^\"" },
+        peg$c183 = { type: "other", description: "NotSQuote" },
+        peg$c184 = /^[^']/,
+        peg$c185 = { type: "class", value: "[^']", description: "[^']" },
+        peg$c186 = { type: "other", description: "NotDQuote" },
+        peg$c187 = /^[^"]/,
+        peg$c188 = { type: "class", value: "[^\"]", description: "[^\"]" },
+        peg$c189 = { type: "other", description: "Whitespace" },
+        peg$c190 = /^[ \t\r\n]/,
+        peg$c191 = { type: "class", value: "[ \\t\\r\\n]", description: "[ \\t\\r\\n]" },
+        peg$c192 = { type: "other", description: "Mandatory Whitespace" },
+        peg$c193 = "--",
+        peg$c194 = { type: "literal", value: "--", description: "\"--\"" },
+        peg$c195 = { type: "any", description: "any character" },
+        peg$c196 = /^[\n\r]/,
+        peg$c197 = { type: "class", value: "[\\n\\r]", description: "[\\n\\r]" },
 
         peg$currPos          = 0,
         peg$reportedPos      = 0,
@@ -26976,6 +26961,9 @@ module.exports = (function() {
           s3 = peg$parse__();
           if (s3 !== peg$FAILED) {
             s4 = peg$parseString();
+            if (s4 === peg$FAILED) {
+              s4 = peg$parseRef();
+            }
             if (s4 !== peg$FAILED) {
               peg$reportedPos = s0;
               s1 = peg$c10(s4);
@@ -27010,7 +26998,7 @@ module.exports = (function() {
         if (s2 !== peg$FAILED) {
           s3 = peg$parse__();
           if (s3 !== peg$FAILED) {
-            s4 = peg$parseRef();
+            s4 = peg$parseRefExpression();
             if (s4 !== peg$FAILED) {
               peg$reportedPos = s0;
               s1 = peg$c11(s4);
@@ -27462,22 +27450,85 @@ module.exports = (function() {
     }
 
     function peg$parseComparisonExpression() {
-      var s0, s1, s2, s3, s4, s5, s6;
+      var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9;
 
       s0 = peg$currPos;
       s1 = peg$parseAdditiveExpression();
       if (s1 !== peg$FAILED) {
-        s2 = peg$currPos;
-        s3 = peg$parse_();
-        if (s3 !== peg$FAILED) {
-          s4 = peg$parseComparisonOp();
-          if (s4 !== peg$FAILED) {
-            s5 = peg$parse_();
-            if (s5 !== peg$FAILED) {
-              s6 = peg$parseAdditiveExpression();
-              if (s6 !== peg$FAILED) {
-                s3 = [s3, s4, s5, s6];
-                s2 = s3;
+        s2 = peg$parse__();
+        if (s2 !== peg$FAILED) {
+          s3 = peg$parseBetweenToken();
+          if (s3 !== peg$FAILED) {
+            s4 = peg$parse__();
+            if (s4 !== peg$FAILED) {
+              s5 = peg$parseAdditiveExpression();
+              if (s5 !== peg$FAILED) {
+                s6 = peg$parse__();
+                if (s6 !== peg$FAILED) {
+                  s7 = peg$parseAndToken();
+                  if (s7 !== peg$FAILED) {
+                    s8 = peg$parse__();
+                    if (s8 !== peg$FAILED) {
+                      s9 = peg$parseAdditiveExpression();
+                      if (s9 !== peg$FAILED) {
+                        peg$reportedPos = s0;
+                        s1 = peg$c21(s1, s5, s9);
+                        s0 = s1;
+                      } else {
+                        peg$currPos = s0;
+                        s0 = peg$c0;
+                      }
+                    } else {
+                      peg$currPos = s0;
+                      s0 = peg$c0;
+                    }
+                  } else {
+                    peg$currPos = s0;
+                    s0 = peg$c0;
+                  }
+                } else {
+                  peg$currPos = s0;
+                  s0 = peg$c0;
+                }
+              } else {
+                peg$currPos = s0;
+                s0 = peg$c0;
+              }
+            } else {
+              peg$currPos = s0;
+              s0 = peg$c0;
+            }
+          } else {
+            peg$currPos = s0;
+            s0 = peg$c0;
+          }
+        } else {
+          peg$currPos = s0;
+          s0 = peg$c0;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$c0;
+      }
+      if (s0 === peg$FAILED) {
+        s0 = peg$currPos;
+        s1 = peg$parseAdditiveExpression();
+        if (s1 !== peg$FAILED) {
+          s2 = peg$currPos;
+          s3 = peg$parse_();
+          if (s3 !== peg$FAILED) {
+            s4 = peg$parseComparisonOp();
+            if (s4 !== peg$FAILED) {
+              s5 = peg$parse_();
+              if (s5 !== peg$FAILED) {
+                s6 = peg$parseAdditiveExpression();
+                if (s6 !== peg$FAILED) {
+                  s3 = [s3, s4, s5, s6];
+                  s2 = s3;
+                } else {
+                  peg$currPos = s2;
+                  s2 = peg$c0;
+                }
               } else {
                 peg$currPos = s2;
                 s2 = peg$c0;
@@ -27490,24 +27541,21 @@ module.exports = (function() {
             peg$currPos = s2;
             s2 = peg$c0;
           }
-        } else {
-          peg$currPos = s2;
-          s2 = peg$c0;
-        }
-        if (s2 === peg$FAILED) {
-          s2 = peg$c2;
-        }
-        if (s2 !== peg$FAILED) {
-          peg$reportedPos = s0;
-          s1 = peg$c21(s1, s2);
-          s0 = s1;
+          if (s2 === peg$FAILED) {
+            s2 = peg$c2;
+          }
+          if (s2 !== peg$FAILED) {
+            peg$reportedPos = s0;
+            s1 = peg$c22(s1, s2);
+            s0 = s1;
+          } else {
+            peg$currPos = s0;
+            s0 = peg$c0;
+          }
         } else {
           peg$currPos = s0;
           s0 = peg$c0;
         }
-      } else {
-        peg$currPos = s0;
-        s0 = peg$c0;
       }
 
       return s0;
@@ -27518,113 +27566,113 @@ module.exports = (function() {
 
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 61) {
-        s1 = peg$c22;
+        s1 = peg$c23;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c23); }
+        if (peg$silentFails === 0) { peg$fail(peg$c24); }
       }
       if (s1 !== peg$FAILED) {
         peg$reportedPos = s0;
-        s1 = peg$c24();
+        s1 = peg$c25();
       }
       s0 = s1;
       if (s0 === peg$FAILED) {
         s0 = peg$currPos;
-        if (input.substr(peg$currPos, 2) === peg$c25) {
-          s1 = peg$c25;
+        if (input.substr(peg$currPos, 2) === peg$c26) {
+          s1 = peg$c26;
           peg$currPos += 2;
         } else {
           s1 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c26); }
+          if (peg$silentFails === 0) { peg$fail(peg$c27); }
         }
         if (s1 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c27();
+          s1 = peg$c28();
         }
         s0 = s1;
         if (s0 === peg$FAILED) {
           s0 = peg$currPos;
-          if (input.substr(peg$currPos, 2) === peg$c28) {
-            s1 = peg$c28;
+          if (input.substr(peg$currPos, 2) === peg$c29) {
+            s1 = peg$c29;
             peg$currPos += 2;
           } else {
             s1 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c29); }
+            if (peg$silentFails === 0) { peg$fail(peg$c30); }
           }
           if (s1 !== peg$FAILED) {
             peg$reportedPos = s0;
-            s1 = peg$c27();
+            s1 = peg$c28();
           }
           s0 = s1;
           if (s0 === peg$FAILED) {
             s0 = peg$currPos;
-            if (input.substr(peg$currPos, 2) === peg$c30) {
-              s1 = peg$c30;
+            if (input.substr(peg$currPos, 2) === peg$c31) {
+              s1 = peg$c31;
               peg$currPos += 2;
             } else {
               s1 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c31); }
+              if (peg$silentFails === 0) { peg$fail(peg$c32); }
             }
             if (s1 !== peg$FAILED) {
               peg$reportedPos = s0;
-              s1 = peg$c32();
+              s1 = peg$c33();
             }
             s0 = s1;
             if (s0 === peg$FAILED) {
               s0 = peg$currPos;
-              if (input.substr(peg$currPos, 2) === peg$c33) {
-                s1 = peg$c33;
+              if (input.substr(peg$currPos, 2) === peg$c34) {
+                s1 = peg$c34;
                 peg$currPos += 2;
               } else {
                 s1 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c34); }
+                if (peg$silentFails === 0) { peg$fail(peg$c35); }
               }
               if (s1 !== peg$FAILED) {
                 peg$reportedPos = s0;
-                s1 = peg$c35();
+                s1 = peg$c36();
               }
               s0 = s1;
               if (s0 === peg$FAILED) {
                 s0 = peg$currPos;
-                if (input.substr(peg$currPos, 2) === peg$c36) {
-                  s1 = peg$c36;
+                if (input.substr(peg$currPos, 2) === peg$c37) {
+                  s1 = peg$c37;
                   peg$currPos += 2;
                 } else {
                   s1 = peg$FAILED;
-                  if (peg$silentFails === 0) { peg$fail(peg$c37); }
+                  if (peg$silentFails === 0) { peg$fail(peg$c38); }
                 }
                 if (s1 !== peg$FAILED) {
                   peg$reportedPos = s0;
-                  s1 = peg$c38();
+                  s1 = peg$c39();
                 }
                 s0 = s1;
                 if (s0 === peg$FAILED) {
                   s0 = peg$currPos;
                   if (input.charCodeAt(peg$currPos) === 60) {
-                    s1 = peg$c39;
+                    s1 = peg$c40;
                     peg$currPos++;
                   } else {
                     s1 = peg$FAILED;
-                    if (peg$silentFails === 0) { peg$fail(peg$c40); }
+                    if (peg$silentFails === 0) { peg$fail(peg$c41); }
                   }
                   if (s1 !== peg$FAILED) {
                     peg$reportedPos = s0;
-                    s1 = peg$c41();
+                    s1 = peg$c42();
                   }
                   s0 = s1;
                   if (s0 === peg$FAILED) {
                     s0 = peg$currPos;
                     if (input.charCodeAt(peg$currPos) === 62) {
-                      s1 = peg$c42;
+                      s1 = peg$c43;
                       peg$currPos++;
                     } else {
                       s1 = peg$FAILED;
-                      if (peg$silentFails === 0) { peg$fail(peg$c43); }
+                      if (peg$silentFails === 0) { peg$fail(peg$c44); }
                     }
                     if (s1 !== peg$FAILED) {
                       peg$reportedPos = s0;
-                      s1 = peg$c44();
+                      s1 = peg$c45();
                     }
                     s0 = s1;
                   }
@@ -27704,7 +27752,7 @@ module.exports = (function() {
         }
         if (s2 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c45(s1, s2);
+          s1 = peg$c46(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -27721,12 +27769,12 @@ module.exports = (function() {
     function peg$parseAdditiveOp() {
       var s0;
 
-      if (peg$c46.test(input.charAt(peg$currPos))) {
+      if (peg$c47.test(input.charAt(peg$currPos))) {
         s0 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c47); }
+        if (peg$silentFails === 0) { peg$fail(peg$c48); }
       }
 
       return s0;
@@ -27798,7 +27846,7 @@ module.exports = (function() {
         }
         if (s2 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c48(s1, s2);
+          s1 = peg$c49(s1, s2);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -27815,12 +27863,12 @@ module.exports = (function() {
     function peg$parseMultiplicativeOp() {
       var s0;
 
-      if (peg$c49.test(input.charAt(peg$currPos))) {
+      if (peg$c50.test(input.charAt(peg$currPos))) {
         s0 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c50); }
+        if (peg$silentFails === 0) { peg$fail(peg$c51); }
       }
 
       return s0;
@@ -27837,11 +27885,11 @@ module.exports = (function() {
           if (s0 === peg$FAILED) {
             s0 = peg$currPos;
             if (input.charCodeAt(peg$currPos) === 40) {
-              s1 = peg$c51;
+              s1 = peg$c52;
               peg$currPos++;
             } else {
               s1 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c52); }
+              if (peg$silentFails === 0) { peg$fail(peg$c53); }
             }
             if (s1 !== peg$FAILED) {
               s2 = peg$parse_();
@@ -27851,15 +27899,15 @@ module.exports = (function() {
                   s4 = peg$parse_();
                   if (s4 !== peg$FAILED) {
                     if (input.charCodeAt(peg$currPos) === 41) {
-                      s5 = peg$c53;
+                      s5 = peg$c54;
                       peg$currPos++;
                     } else {
                       s5 = peg$FAILED;
-                      if (peg$silentFails === 0) { peg$fail(peg$c54); }
+                      if (peg$silentFails === 0) { peg$fail(peg$c55); }
                     }
                     if (s5 !== peg$FAILED) {
                       peg$reportedPos = s0;
-                      s1 = peg$c55(s3);
+                      s1 = peg$c56(s3);
                       s0 = s1;
                     } else {
                       peg$currPos = s0;
@@ -27884,11 +27932,11 @@ module.exports = (function() {
             if (s0 === peg$FAILED) {
               s0 = peg$currPos;
               if (input.charCodeAt(peg$currPos) === 40) {
-                s1 = peg$c51;
+                s1 = peg$c52;
                 peg$currPos++;
               } else {
                 s1 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c52); }
+                if (peg$silentFails === 0) { peg$fail(peg$c53); }
               }
               if (s1 !== peg$FAILED) {
                 s2 = peg$parse_();
@@ -27898,15 +27946,15 @@ module.exports = (function() {
                     s4 = peg$parse_();
                     if (s4 !== peg$FAILED) {
                       if (input.charCodeAt(peg$currPos) === 41) {
-                        s5 = peg$c53;
+                        s5 = peg$c54;
                         peg$currPos++;
                       } else {
                         s5 = peg$FAILED;
-                        if (peg$silentFails === 0) { peg$fail(peg$c54); }
+                        if (peg$silentFails === 0) { peg$fail(peg$c55); }
                       }
                       if (s5 !== peg$FAILED) {
                         peg$reportedPos = s0;
-                        s1 = peg$c56(s3);
+                        s1 = peg$c57(s3);
                         s0 = s1;
                       } else {
                         peg$currPos = s0;
@@ -27929,7 +27977,7 @@ module.exports = (function() {
                 s0 = peg$c0;
               }
               if (s0 === peg$FAILED) {
-                s0 = peg$parseRef();
+                s0 = peg$parseRefExpression();
               }
             }
           }
@@ -27945,16 +27993,16 @@ module.exports = (function() {
       s0 = peg$currPos;
       s1 = peg$parseCountToken();
       if (s1 !== peg$FAILED) {
-        if (input.substr(peg$currPos, 2) === peg$c57) {
-          s2 = peg$c57;
+        if (input.substr(peg$currPos, 2) === peg$c58) {
+          s2 = peg$c58;
           peg$currPos += 2;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c58); }
+          if (peg$silentFails === 0) { peg$fail(peg$c59); }
         }
         if (s2 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c59();
+          s1 = peg$c60();
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -27969,11 +28017,11 @@ module.exports = (function() {
         s1 = peg$parseAggregateFn();
         if (s1 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 40) {
-            s2 = peg$c51;
+            s2 = peg$c52;
             peg$currPos++;
           } else {
             s2 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c52); }
+            if (peg$silentFails === 0) { peg$fail(peg$c53); }
           }
           if (s2 !== peg$FAILED) {
             s3 = peg$parse_();
@@ -27983,15 +28031,15 @@ module.exports = (function() {
                 s5 = peg$parse_();
                 if (s5 !== peg$FAILED) {
                   if (input.charCodeAt(peg$currPos) === 41) {
-                    s6 = peg$c53;
+                    s6 = peg$c54;
                     peg$currPos++;
                   } else {
                     s6 = peg$FAILED;
-                    if (peg$silentFails === 0) { peg$fail(peg$c54); }
+                    if (peg$silentFails === 0) { peg$fail(peg$c55); }
                   }
                   if (s6 !== peg$FAILED) {
                     peg$reportedPos = s0;
-                    s1 = peg$c60(s1, s4);
+                    s1 = peg$c61(s1, s4);
                     s0 = s1;
                   } else {
                     peg$currPos = s0;
@@ -28046,11 +28094,11 @@ module.exports = (function() {
       s1 = peg$parseTimeBucketToken();
       if (s1 !== peg$FAILED) {
         if (input.charCodeAt(peg$currPos) === 40) {
-          s2 = peg$c51;
+          s2 = peg$c52;
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c52); }
+          if (peg$silentFails === 0) { peg$fail(peg$c53); }
         }
         if (s2 !== peg$FAILED) {
           s3 = peg$parse_();
@@ -28086,15 +28134,15 @@ module.exports = (function() {
                             s12 = peg$parseString();
                             if (s12 !== peg$FAILED) {
                               if (input.charCodeAt(peg$currPos) === 41) {
-                                s13 = peg$c53;
+                                s13 = peg$c54;
                                 peg$currPos++;
                               } else {
                                 s13 = peg$FAILED;
-                                if (peg$silentFails === 0) { peg$fail(peg$c54); }
+                                if (peg$silentFails === 0) { peg$fail(peg$c55); }
                               }
                               if (s13 !== peg$FAILED) {
                                 peg$reportedPos = s0;
-                                s1 = peg$c61(s4, s8, s12);
+                                s1 = peg$c62(s4, s8, s12);
                                 s0 = s1;
                               } else {
                                 peg$currPos = s0;
@@ -28153,11 +28201,11 @@ module.exports = (function() {
         s1 = peg$parseNumberBucketToken();
         if (s1 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 40) {
-            s2 = peg$c51;
+            s2 = peg$c52;
             peg$currPos++;
           } else {
             s2 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c52); }
+            if (peg$silentFails === 0) { peg$fail(peg$c53); }
           }
           if (s2 !== peg$FAILED) {
             s3 = peg$parse_();
@@ -28193,15 +28241,15 @@ module.exports = (function() {
                               s12 = peg$parseNumber();
                               if (s12 !== peg$FAILED) {
                                 if (input.charCodeAt(peg$currPos) === 41) {
-                                  s13 = peg$c53;
+                                  s13 = peg$c54;
                                   peg$currPos++;
                                 } else {
                                   s13 = peg$FAILED;
-                                  if (peg$silentFails === 0) { peg$fail(peg$c54); }
+                                  if (peg$silentFails === 0) { peg$fail(peg$c55); }
                                 }
                                 if (s13 !== peg$FAILED) {
                                   peg$reportedPos = s0;
-                                  s1 = peg$c62(s4, s8, s12);
+                                  s1 = peg$c63(s4, s8, s12);
                                   s0 = s1;
                                 } else {
                                   peg$currPos = s0;
@@ -28255,6 +28303,166 @@ module.exports = (function() {
           peg$currPos = s0;
           s0 = peg$c0;
         }
+        if (s0 === peg$FAILED) {
+          s0 = peg$currPos;
+          s1 = peg$parseSubstrToken();
+          if (s1 !== peg$FAILED) {
+            if (input.charCodeAt(peg$currPos) === 40) {
+              s2 = peg$c52;
+              peg$currPos++;
+            } else {
+              s2 = peg$FAILED;
+              if (peg$silentFails === 0) { peg$fail(peg$c53); }
+            }
+            if (s2 !== peg$FAILED) {
+              s3 = peg$parse_();
+              if (s3 !== peg$FAILED) {
+                s4 = peg$parseOrExpression();
+                if (s4 !== peg$FAILED) {
+                  s5 = peg$parse_();
+                  if (s5 !== peg$FAILED) {
+                    if (input.charCodeAt(peg$currPos) === 44) {
+                      s6 = peg$c6;
+                      peg$currPos++;
+                    } else {
+                      s6 = peg$FAILED;
+                      if (peg$silentFails === 0) { peg$fail(peg$c7); }
+                    }
+                    if (s6 !== peg$FAILED) {
+                      s7 = peg$parse_();
+                      if (s7 !== peg$FAILED) {
+                        s8 = peg$parseNumber();
+                        if (s8 !== peg$FAILED) {
+                          s9 = peg$parse_();
+                          if (s9 !== peg$FAILED) {
+                            if (input.charCodeAt(peg$currPos) === 44) {
+                              s10 = peg$c6;
+                              peg$currPos++;
+                            } else {
+                              s10 = peg$FAILED;
+                              if (peg$silentFails === 0) { peg$fail(peg$c7); }
+                            }
+                            if (s10 !== peg$FAILED) {
+                              s11 = peg$parse_();
+                              if (s11 !== peg$FAILED) {
+                                s12 = peg$parseNumber();
+                                if (s12 !== peg$FAILED) {
+                                  if (input.charCodeAt(peg$currPos) === 41) {
+                                    s13 = peg$c54;
+                                    peg$currPos++;
+                                  } else {
+                                    s13 = peg$FAILED;
+                                    if (peg$silentFails === 0) { peg$fail(peg$c55); }
+                                  }
+                                  if (s13 !== peg$FAILED) {
+                                    peg$reportedPos = s0;
+                                    s1 = peg$c64(s4, s8, s12);
+                                    s0 = s1;
+                                  } else {
+                                    peg$currPos = s0;
+                                    s0 = peg$c0;
+                                  }
+                                } else {
+                                  peg$currPos = s0;
+                                  s0 = peg$c0;
+                                }
+                              } else {
+                                peg$currPos = s0;
+                                s0 = peg$c0;
+                              }
+                            } else {
+                              peg$currPos = s0;
+                              s0 = peg$c0;
+                            }
+                          } else {
+                            peg$currPos = s0;
+                            s0 = peg$c0;
+                          }
+                        } else {
+                          peg$currPos = s0;
+                          s0 = peg$c0;
+                        }
+                      } else {
+                        peg$currPos = s0;
+                        s0 = peg$c0;
+                      }
+                    } else {
+                      peg$currPos = s0;
+                      s0 = peg$c0;
+                    }
+                  } else {
+                    peg$currPos = s0;
+                    s0 = peg$c0;
+                  }
+                } else {
+                  peg$currPos = s0;
+                  s0 = peg$c0;
+                }
+              } else {
+                peg$currPos = s0;
+                s0 = peg$c0;
+              }
+            } else {
+              peg$currPos = s0;
+              s0 = peg$c0;
+            }
+          } else {
+            peg$currPos = s0;
+            s0 = peg$c0;
+          }
+        }
+      }
+
+      return s0;
+    }
+
+    function peg$parseRefExpression() {
+      var s0, s1;
+
+      s0 = peg$currPos;
+      s1 = peg$parseRef();
+      if (s1 !== peg$FAILED) {
+        peg$reportedPos = s0;
+        s1 = peg$c65(s1);
+      }
+      s0 = s1;
+
+      return s0;
+    }
+
+    function peg$parseLiteralExpression() {
+      var s0, s1;
+
+      s0 = peg$currPos;
+      s1 = peg$parseNumber();
+      if (s1 !== peg$FAILED) {
+        peg$reportedPos = s0;
+        s1 = peg$c66(s1);
+      }
+      s0 = s1;
+      if (s0 === peg$FAILED) {
+        s0 = peg$currPos;
+        s1 = peg$parseString();
+        if (s1 !== peg$FAILED) {
+          peg$reportedPos = s0;
+          s1 = peg$c67(s1);
+        }
+        s0 = s1;
+        if (s0 === peg$FAILED) {
+          s0 = peg$currPos;
+          s1 = peg$parseNullToken();
+          if (s1 === peg$FAILED) {
+            s1 = peg$parseTrueToken();
+            if (s1 === peg$FAILED) {
+              s1 = peg$parseFalseToken();
+            }
+          }
+          if (s1 !== peg$FAILED) {
+            peg$reportedPos = s0;
+            s1 = peg$c68(s1);
+          }
+          s0 = s1;
+        }
       }
 
       return s0;
@@ -28267,15 +28475,15 @@ module.exports = (function() {
       s1 = peg$parseRefName();
       if (s1 !== peg$FAILED) {
         peg$reportedPos = peg$currPos;
-        s2 = peg$c63(s1);
+        s2 = peg$c69(s1);
         if (s2) {
           s2 = peg$c0;
         } else {
-          s2 = peg$c64;
+          s2 = peg$c70;
         }
         if (s2 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c65(s1);
+          s1 = peg$c71(s1);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -28288,25 +28496,25 @@ module.exports = (function() {
       if (s0 === peg$FAILED) {
         s0 = peg$currPos;
         if (input.charCodeAt(peg$currPos) === 96) {
-          s1 = peg$c66;
+          s1 = peg$c72;
           peg$currPos++;
         } else {
           s1 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c67); }
+          if (peg$silentFails === 0) { peg$fail(peg$c73); }
         }
         if (s1 !== peg$FAILED) {
           s2 = peg$parseRefName();
           if (s2 !== peg$FAILED) {
             if (input.charCodeAt(peg$currPos) === 96) {
-              s3 = peg$c66;
+              s3 = peg$c72;
               peg$currPos++;
             } else {
               s3 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c67); }
+              if (peg$silentFails === 0) { peg$fail(peg$c73); }
             }
             if (s3 !== peg$FAILED) {
               peg$reportedPos = s0;
-              s1 = peg$c65(s2);
+              s1 = peg$c71(s2);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -28325,69 +28533,31 @@ module.exports = (function() {
       return s0;
     }
 
-    function peg$parseLiteralExpression() {
-      var s0, s1;
-
-      s0 = peg$currPos;
-      s1 = peg$parseNumber();
-      if (s1 !== peg$FAILED) {
-        peg$reportedPos = s0;
-        s1 = peg$c68(s1);
-      }
-      s0 = s1;
-      if (s0 === peg$FAILED) {
-        s0 = peg$currPos;
-        s1 = peg$parseString();
-        if (s1 !== peg$FAILED) {
-          peg$reportedPos = s0;
-          s1 = peg$c69(s1);
-        }
-        s0 = s1;
-        if (s0 === peg$FAILED) {
-          s0 = peg$currPos;
-          s1 = peg$parseNullToken();
-          if (s1 === peg$FAILED) {
-            s1 = peg$parseTrueToken();
-            if (s1 === peg$FAILED) {
-              s1 = peg$parseFalseToken();
-            }
-          }
-          if (s1 !== peg$FAILED) {
-            peg$reportedPos = s0;
-            s1 = peg$c70(s1);
-          }
-          s0 = s1;
-        }
-      }
-
-      return s0;
-    }
-
     function peg$parseString() {
       var s0, s1, s2, s3;
 
       peg$silentFails++;
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 39) {
-        s1 = peg$c72;
+        s1 = peg$c75;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c73); }
+        if (peg$silentFails === 0) { peg$fail(peg$c76); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parseNotSQuote();
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 39) {
-            s3 = peg$c72;
+            s3 = peg$c75;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c73); }
+            if (peg$silentFails === 0) { peg$fail(peg$c76); }
           }
           if (s3 !== peg$FAILED) {
             peg$reportedPos = s0;
-            s1 = peg$c74(s2);
+            s1 = peg$c77(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -28404,17 +28574,17 @@ module.exports = (function() {
       if (s0 === peg$FAILED) {
         s0 = peg$currPos;
         if (input.charCodeAt(peg$currPos) === 39) {
-          s1 = peg$c72;
+          s1 = peg$c75;
           peg$currPos++;
         } else {
           s1 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c73); }
+          if (peg$silentFails === 0) { peg$fail(peg$c76); }
         }
         if (s1 !== peg$FAILED) {
           s2 = peg$parseNotSQuote();
           if (s2 !== peg$FAILED) {
             peg$reportedPos = s0;
-            s1 = peg$c75(s2);
+            s1 = peg$c78(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -28427,25 +28597,25 @@ module.exports = (function() {
         if (s0 === peg$FAILED) {
           s0 = peg$currPos;
           if (input.charCodeAt(peg$currPos) === 34) {
-            s1 = peg$c76;
+            s1 = peg$c79;
             peg$currPos++;
           } else {
             s1 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c77); }
+            if (peg$silentFails === 0) { peg$fail(peg$c80); }
           }
           if (s1 !== peg$FAILED) {
             s2 = peg$parseNotDQuote();
             if (s2 !== peg$FAILED) {
               if (input.charCodeAt(peg$currPos) === 34) {
-                s3 = peg$c76;
+                s3 = peg$c79;
                 peg$currPos++;
               } else {
                 s3 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c77); }
+                if (peg$silentFails === 0) { peg$fail(peg$c80); }
               }
               if (s3 !== peg$FAILED) {
                 peg$reportedPos = s0;
-                s1 = peg$c74(s2);
+                s1 = peg$c77(s2);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -28462,17 +28632,17 @@ module.exports = (function() {
           if (s0 === peg$FAILED) {
             s0 = peg$currPos;
             if (input.charCodeAt(peg$currPos) === 34) {
-              s1 = peg$c76;
+              s1 = peg$c79;
               peg$currPos++;
             } else {
               s1 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c77); }
+              if (peg$silentFails === 0) { peg$fail(peg$c80); }
             }
             if (s1 !== peg$FAILED) {
               s2 = peg$parseNotDQuote();
               if (s2 !== peg$FAILED) {
                 peg$reportedPos = s0;
-                s1 = peg$c78(s2);
+                s1 = peg$c81(s2);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -28488,51 +28658,13 @@ module.exports = (function() {
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c71); }
+        if (peg$silentFails === 0) { peg$fail(peg$c74); }
       }
 
       return s0;
     }
 
     function peg$parseNullToken() {
-      var s0, s1, s2, s3;
-
-      s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c79) {
-        s1 = input.substr(peg$currPos, 4);
-        peg$currPos += 4;
-      } else {
-        s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c80); }
-      }
-      if (s1 !== peg$FAILED) {
-        s2 = peg$currPos;
-        peg$silentFails++;
-        s3 = peg$parseIdentifierPart();
-        peg$silentFails--;
-        if (s3 === peg$FAILED) {
-          s2 = peg$c64;
-        } else {
-          peg$currPos = s2;
-          s2 = peg$c0;
-        }
-        if (s2 !== peg$FAILED) {
-          peg$reportedPos = s0;
-          s1 = peg$c81();
-          s0 = s1;
-        } else {
-          peg$currPos = s0;
-          s0 = peg$c0;
-        }
-      } else {
-        peg$currPos = s0;
-        s0 = peg$c0;
-      }
-
-      return s0;
-    }
-
-    function peg$parseTrueToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
@@ -28549,7 +28681,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28570,13 +28702,13 @@ module.exports = (function() {
       return s0;
     }
 
-    function peg$parseFalseToken() {
+    function peg$parseTrueToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c85) {
-        s1 = input.substr(peg$currPos, 5);
-        peg$currPos += 5;
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c85) {
+        s1 = input.substr(peg$currPos, 4);
+        peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
         if (peg$silentFails === 0) { peg$fail(peg$c86); }
@@ -28587,7 +28719,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28608,13 +28740,13 @@ module.exports = (function() {
       return s0;
     }
 
-    function peg$parseSelectToken() {
+    function peg$parseFalseToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c88) {
-        s1 = input.substr(peg$currPos, 6);
-        peg$currPos += 6;
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c88) {
+        s1 = input.substr(peg$currPos, 5);
+        peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
         if (peg$silentFails === 0) { peg$fail(peg$c89); }
@@ -28625,7 +28757,45 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
+        } else {
+          peg$currPos = s2;
+          s2 = peg$c0;
+        }
+        if (s2 !== peg$FAILED) {
+          peg$reportedPos = s0;
+          s1 = peg$c90();
+          s0 = s1;
+        } else {
+          peg$currPos = s0;
+          s0 = peg$c0;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$c0;
+      }
+
+      return s0;
+    }
+
+    function peg$parseSelectToken() {
+      var s0, s1, s2, s3;
+
+      s0 = peg$currPos;
+      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c91) {
+        s1 = input.substr(peg$currPos, 6);
+        peg$currPos += 6;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c92); }
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = peg$currPos;
+        peg$silentFails++;
+        s3 = peg$parseIdentifierPart();
+        peg$silentFails--;
+        if (s3 === peg$FAILED) {
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28649,12 +28819,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c90) {
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c93) {
         s1 = input.substr(peg$currPos, 4);
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c91); }
+        if (peg$silentFails === 0) { peg$fail(peg$c94); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -28662,7 +28832,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28686,12 +28856,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c92) {
+      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c95) {
         s1 = input.substr(peg$currPos, 2);
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c93); }
+        if (peg$silentFails === 0) { peg$fail(peg$c96); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -28699,7 +28869,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28723,12 +28893,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c94) {
+      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c97) {
         s1 = input.substr(peg$currPos, 2);
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c95); }
+        if (peg$silentFails === 0) { peg$fail(peg$c98); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -28736,7 +28906,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28760,12 +28930,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c96) {
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c99) {
         s1 = input.substr(peg$currPos, 4);
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c97); }
+        if (peg$silentFails === 0) { peg$fail(peg$c100); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -28773,7 +28943,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28797,12 +28967,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c98) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c101) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c99); }
+        if (peg$silentFails === 0) { peg$fail(peg$c102); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -28810,7 +28980,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28834,12 +29004,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c100) {
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c103) {
         s1 = input.substr(peg$currPos, 4);
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c101); }
+        if (peg$silentFails === 0) { peg$fail(peg$c104); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -28847,7 +29017,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28871,12 +29041,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c102) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c105) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c103); }
+        if (peg$silentFails === 0) { peg$fail(peg$c106); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -28884,7 +29054,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28908,12 +29078,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c104) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c107) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c105); }
+        if (peg$silentFails === 0) { peg$fail(peg$c108); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -28921,7 +29091,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28945,12 +29115,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c106) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c109) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c107); }
+        if (peg$silentFails === 0) { peg$fail(peg$c110); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -28958,7 +29128,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -28982,12 +29152,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c108) {
+      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c111) {
         s1 = input.substr(peg$currPos, 2);
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c109); }
+        if (peg$silentFails === 0) { peg$fail(peg$c112); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -28995,7 +29165,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29019,12 +29189,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c110) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c113) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c111); }
+        if (peg$silentFails === 0) { peg$fail(peg$c114); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -29032,7 +29202,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29056,12 +29226,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c112) {
+      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c115) {
         s1 = input.substr(peg$currPos, 6);
         peg$currPos += 6;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c113); }
+        if (peg$silentFails === 0) { peg$fail(peg$c116); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -29069,7 +29239,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29093,12 +29263,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c114) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c117) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c115); }
+        if (peg$silentFails === 0) { peg$fail(peg$c118); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -29106,7 +29276,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29130,47 +29300,9 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c116) {
+      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c119) {
         s1 = input.substr(peg$currPos, 3);
         peg$currPos += 3;
-      } else {
-        s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c117); }
-      }
-      if (s1 !== peg$FAILED) {
-        s2 = peg$currPos;
-        peg$silentFails++;
-        s3 = peg$parseIdentifierPart();
-        peg$silentFails--;
-        if (s3 === peg$FAILED) {
-          s2 = peg$c64;
-        } else {
-          peg$currPos = s2;
-          s2 = peg$c0;
-        }
-        if (s2 !== peg$FAILED) {
-          peg$reportedPos = s0;
-          s1 = peg$c118();
-          s0 = s1;
-        } else {
-          peg$currPos = s0;
-          s0 = peg$c0;
-        }
-      } else {
-        peg$currPos = s0;
-        s0 = peg$c0;
-      }
-
-      return s0;
-    }
-
-    function peg$parseDescToken() {
-      var s0, s1, s2, s3;
-
-      s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c119) {
-        s1 = input.substr(peg$currPos, 4);
-        peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
         if (peg$silentFails === 0) { peg$fail(peg$c120); }
@@ -29181,7 +29313,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29202,13 +29334,13 @@ module.exports = (function() {
       return s0;
     }
 
-    function peg$parseBetweenToken() {
+    function peg$parseDescToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 7).toLowerCase() === peg$c122) {
-        s1 = input.substr(peg$currPos, 7);
-        peg$currPos += 7;
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c122) {
+        s1 = input.substr(peg$currPos, 4);
+        peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
         if (peg$silentFails === 0) { peg$fail(peg$c123); }
@@ -29219,7 +29351,45 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
+        } else {
+          peg$currPos = s2;
+          s2 = peg$c0;
+        }
+        if (s2 !== peg$FAILED) {
+          peg$reportedPos = s0;
+          s1 = peg$c124();
+          s0 = s1;
+        } else {
+          peg$currPos = s0;
+          s0 = peg$c0;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$c0;
+      }
+
+      return s0;
+    }
+
+    function peg$parseBetweenToken() {
+      var s0, s1, s2, s3;
+
+      s0 = peg$currPos;
+      if (input.substr(peg$currPos, 7).toLowerCase() === peg$c125) {
+        s1 = input.substr(peg$currPos, 7);
+        peg$currPos += 7;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c126); }
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = peg$currPos;
+        peg$silentFails++;
+        s3 = peg$parseIdentifierPart();
+        peg$silentFails--;
+        if (s3 === peg$FAILED) {
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29243,12 +29413,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c30) {
+      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c31) {
         s1 = input.substr(peg$currPos, 2);
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c124); }
+        if (peg$silentFails === 0) { peg$fail(peg$c127); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -29256,7 +29426,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29280,12 +29450,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c125) {
+      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c128) {
         s1 = input.substr(peg$currPos, 2);
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c126); }
+        if (peg$silentFails === 0) { peg$fail(peg$c129); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -29293,7 +29463,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29317,12 +29487,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c127) {
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c130) {
         s1 = input.substr(peg$currPos, 4);
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c128); }
+        if (peg$silentFails === 0) { peg$fail(peg$c131); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -29330,7 +29500,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29354,12 +29524,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 8).toLowerCase() === peg$c129) {
+      if (input.substr(peg$currPos, 8).toLowerCase() === peg$c132) {
         s1 = input.substr(peg$currPos, 8);
         peg$currPos += 8;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c130); }
+        if (peg$silentFails === 0) { peg$fail(peg$c133); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -29367,7 +29537,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29391,12 +29561,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c131) {
+      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c134) {
         s1 = input.substr(peg$currPos, 3);
         peg$currPos += 3;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c132); }
+        if (peg$silentFails === 0) { peg$fail(peg$c135); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -29404,7 +29574,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29428,12 +29598,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c133) {
+      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c136) {
         s1 = input.substr(peg$currPos, 3);
         peg$currPos += 3;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c134); }
+        if (peg$silentFails === 0) { peg$fail(peg$c137); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -29441,7 +29611,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29465,12 +29635,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c135) {
+      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c138) {
         s1 = input.substr(peg$currPos, 2);
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c136); }
+        if (peg$silentFails === 0) { peg$fail(peg$c139); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -29478,7 +29648,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29502,47 +29672,9 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c137) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c140) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
-      } else {
-        s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c138); }
-      }
-      if (s1 !== peg$FAILED) {
-        s2 = peg$currPos;
-        peg$silentFails++;
-        s3 = peg$parseIdentifierPart();
-        peg$silentFails--;
-        if (s3 === peg$FAILED) {
-          s2 = peg$c64;
-        } else {
-          peg$currPos = s2;
-          s2 = peg$c0;
-        }
-        if (s2 !== peg$FAILED) {
-          peg$reportedPos = s0;
-          s1 = peg$c139();
-          s0 = s1;
-        } else {
-          peg$currPos = s0;
-          s0 = peg$c0;
-        }
-      } else {
-        peg$currPos = s0;
-        s0 = peg$c0;
-      }
-
-      return s0;
-    }
-
-    function peg$parseSumToken() {
-      var s0, s1, s2, s3;
-
-      s0 = peg$currPos;
-      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c140) {
-        s1 = input.substr(peg$currPos, 3);
-        peg$currPos += 3;
       } else {
         s1 = peg$FAILED;
         if (peg$silentFails === 0) { peg$fail(peg$c141); }
@@ -29553,7 +29685,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29574,7 +29706,7 @@ module.exports = (function() {
       return s0;
     }
 
-    function peg$parseAvgToken() {
+    function peg$parseSumToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
@@ -29591,7 +29723,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29612,7 +29744,7 @@ module.exports = (function() {
       return s0;
     }
 
-    function peg$parseMinToken() {
+    function peg$parseAvgToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
@@ -29629,7 +29761,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29650,7 +29782,7 @@ module.exports = (function() {
       return s0;
     }
 
-    function peg$parseMaxToken() {
+    function peg$parseMinToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
@@ -29667,7 +29799,7 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29688,13 +29820,13 @@ module.exports = (function() {
       return s0;
     }
 
-    function peg$parseTimeBucketToken() {
+    function peg$parseMaxToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 11).toLowerCase() === peg$c152) {
-        s1 = input.substr(peg$currPos, 11);
-        peg$currPos += 11;
+      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c152) {
+        s1 = input.substr(peg$currPos, 3);
+        peg$currPos += 3;
       } else {
         s1 = peg$FAILED;
         if (peg$silentFails === 0) { peg$fail(peg$c153); }
@@ -29705,7 +29837,45 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
+        } else {
+          peg$currPos = s2;
+          s2 = peg$c0;
+        }
+        if (s2 !== peg$FAILED) {
+          peg$reportedPos = s0;
+          s1 = peg$c154();
+          s0 = s1;
+        } else {
+          peg$currPos = s0;
+          s0 = peg$c0;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$c0;
+      }
+
+      return s0;
+    }
+
+    function peg$parseTimeBucketToken() {
+      var s0, s1, s2, s3;
+
+      s0 = peg$currPos;
+      if (input.substr(peg$currPos, 11).toLowerCase() === peg$c155) {
+        s1 = input.substr(peg$currPos, 11);
+        peg$currPos += 11;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c156); }
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = peg$currPos;
+        peg$silentFails++;
+        s3 = peg$parseIdentifierPart();
+        peg$silentFails--;
+        if (s3 === peg$FAILED) {
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29729,12 +29899,12 @@ module.exports = (function() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 13).toLowerCase() === peg$c154) {
+      if (input.substr(peg$currPos, 13).toLowerCase() === peg$c157) {
         s1 = input.substr(peg$currPos, 13);
         peg$currPos += 13;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c155); }
+        if (peg$silentFails === 0) { peg$fail(peg$c158); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -29742,7 +29912,44 @@ module.exports = (function() {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c64;
+          s2 = peg$c70;
+        } else {
+          peg$currPos = s2;
+          s2 = peg$c0;
+        }
+        if (s2 !== peg$FAILED) {
+          s1 = [s1, s2];
+          s0 = s1;
+        } else {
+          peg$currPos = s0;
+          s0 = peg$c0;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$c0;
+      }
+
+      return s0;
+    }
+
+    function peg$parseSubstrToken() {
+      var s0, s1, s2, s3;
+
+      s0 = peg$currPos;
+      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c159) {
+        s1 = input.substr(peg$currPos, 6);
+        peg$currPos += 6;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c160); }
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = peg$currPos;
+        peg$silentFails++;
+        s3 = peg$parseIdentifierPart();
+        peg$silentFails--;
+        if (s3 === peg$FAILED) {
+          s2 = peg$c70;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -29765,12 +29972,12 @@ module.exports = (function() {
     function peg$parseIdentifierPart() {
       var s0;
 
-      if (peg$c156.test(input.charAt(peg$currPos))) {
+      if (peg$c161.test(input.charAt(peg$currPos))) {
         s0 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c157); }
+        if (peg$silentFails === 0) { peg$fail(peg$c162); }
       }
 
       return s0;
@@ -29815,13 +30022,13 @@ module.exports = (function() {
       s1 = s2;
       if (s1 !== peg$FAILED) {
         peg$reportedPos = s0;
-        s1 = peg$c159(s1);
+        s1 = peg$c164(s1);
       }
       s0 = s1;
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c158); }
+        if (peg$silentFails === 0) { peg$fail(peg$c163); }
       }
 
       return s0;
@@ -29833,22 +30040,22 @@ module.exports = (function() {
       s0 = peg$currPos;
       s1 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 45) {
-        s2 = peg$c160;
+        s2 = peg$c165;
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c161); }
+        if (peg$silentFails === 0) { peg$fail(peg$c166); }
       }
       if (s2 === peg$FAILED) {
         s2 = peg$c2;
       }
       if (s2 !== peg$FAILED) {
-        if (peg$c162.test(input.charAt(peg$currPos))) {
+        if (peg$c167.test(input.charAt(peg$currPos))) {
           s3 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c163); }
+          if (peg$silentFails === 0) { peg$fail(peg$c168); }
         }
         if (s3 !== peg$FAILED) {
           s4 = peg$parseDigits();
@@ -29875,11 +30082,11 @@ module.exports = (function() {
         s0 = peg$currPos;
         s1 = peg$currPos;
         if (input.charCodeAt(peg$currPos) === 45) {
-          s2 = peg$c160;
+          s2 = peg$c165;
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c161); }
+          if (peg$silentFails === 0) { peg$fail(peg$c166); }
         }
         if (s2 === peg$FAILED) {
           s2 = peg$c2;
@@ -29912,11 +30119,11 @@ module.exports = (function() {
       s0 = peg$currPos;
       s1 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 46) {
-        s2 = peg$c164;
+        s2 = peg$c169;
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c165); }
+        if (peg$silentFails === 0) { peg$fail(peg$c170); }
       }
       if (s2 !== peg$FAILED) {
         s3 = peg$parseDigits();
@@ -29944,20 +30151,20 @@ module.exports = (function() {
 
       s0 = peg$currPos;
       s1 = peg$currPos;
-      if (input.substr(peg$currPos, 1).toLowerCase() === peg$c166) {
+      if (input.substr(peg$currPos, 1).toLowerCase() === peg$c171) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c167); }
+        if (peg$silentFails === 0) { peg$fail(peg$c172); }
       }
       if (s2 !== peg$FAILED) {
-        if (peg$c46.test(input.charAt(peg$currPos))) {
+        if (peg$c47.test(input.charAt(peg$currPos))) {
           s3 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c47); }
+          if (peg$silentFails === 0) { peg$fail(peg$c48); }
         }
         if (s3 === peg$FAILED) {
           s3 = peg$c2;
@@ -30012,12 +30219,12 @@ module.exports = (function() {
     function peg$parseDigit() {
       var s0;
 
-      if (peg$c168.test(input.charAt(peg$currPos))) {
+      if (peg$c173.test(input.charAt(peg$currPos))) {
         s0 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c169); }
+        if (peg$silentFails === 0) { peg$fail(peg$c174); }
       }
 
       return s0;
@@ -30029,82 +30236,32 @@ module.exports = (function() {
       peg$silentFails++;
       s0 = peg$currPos;
       s1 = peg$currPos;
-      if (peg$c171.test(input.charAt(peg$currPos))) {
+      if (peg$c176.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c172); }
+        if (peg$silentFails === 0) { peg$fail(peg$c177); }
       }
       if (s2 !== peg$FAILED) {
         s3 = [];
-        if (peg$c173.test(input.charAt(peg$currPos))) {
+        if (peg$c178.test(input.charAt(peg$currPos))) {
           s4 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s4 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c174); }
+          if (peg$silentFails === 0) { peg$fail(peg$c179); }
         }
         while (s4 !== peg$FAILED) {
           s3.push(s4);
-          if (peg$c173.test(input.charAt(peg$currPos))) {
+          if (peg$c178.test(input.charAt(peg$currPos))) {
             s4 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s4 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c174); }
+            if (peg$silentFails === 0) { peg$fail(peg$c179); }
           }
         }
-        if (s3 !== peg$FAILED) {
-          s2 = [s2, s3];
-          s1 = s2;
-        } else {
-          peg$currPos = s1;
-          s1 = peg$c0;
-        }
-      } else {
-        peg$currPos = s1;
-        s1 = peg$c0;
-      }
-      if (s1 !== peg$FAILED) {
-        s1 = input.substring(s0, peg$currPos);
-      }
-      s0 = s1;
-      peg$silentFails--;
-      if (s0 === peg$FAILED) {
-        s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c170); }
-      }
-
-      return s0;
-    }
-
-    function peg$parseRefName() {
-      var s0, s1, s2, s3;
-
-      peg$silentFails++;
-      s0 = peg$currPos;
-      s1 = peg$currPos;
-      s2 = [];
-      if (input.charCodeAt(peg$currPos) === 94) {
-        s3 = peg$c176;
-        peg$currPos++;
-      } else {
-        s3 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c177); }
-      }
-      while (s3 !== peg$FAILED) {
-        s2.push(s3);
-        if (input.charCodeAt(peg$currPos) === 94) {
-          s3 = peg$c176;
-          peg$currPos++;
-        } else {
-          s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c177); }
-        }
-      }
-      if (s2 !== peg$FAILED) {
-        s3 = peg$parseName();
         if (s3 !== peg$FAILED) {
           s2 = [s2, s3];
           s1 = s2;
@@ -30129,27 +30286,77 @@ module.exports = (function() {
       return s0;
     }
 
+    function peg$parseRefName() {
+      var s0, s1, s2, s3;
+
+      peg$silentFails++;
+      s0 = peg$currPos;
+      s1 = peg$currPos;
+      s2 = [];
+      if (input.charCodeAt(peg$currPos) === 94) {
+        s3 = peg$c181;
+        peg$currPos++;
+      } else {
+        s3 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c182); }
+      }
+      while (s3 !== peg$FAILED) {
+        s2.push(s3);
+        if (input.charCodeAt(peg$currPos) === 94) {
+          s3 = peg$c181;
+          peg$currPos++;
+        } else {
+          s3 = peg$FAILED;
+          if (peg$silentFails === 0) { peg$fail(peg$c182); }
+        }
+      }
+      if (s2 !== peg$FAILED) {
+        s3 = peg$parseName();
+        if (s3 !== peg$FAILED) {
+          s2 = [s2, s3];
+          s1 = s2;
+        } else {
+          peg$currPos = s1;
+          s1 = peg$c0;
+        }
+      } else {
+        peg$currPos = s1;
+        s1 = peg$c0;
+      }
+      if (s1 !== peg$FAILED) {
+        s1 = input.substring(s0, peg$currPos);
+      }
+      s0 = s1;
+      peg$silentFails--;
+      if (s0 === peg$FAILED) {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c180); }
+      }
+
+      return s0;
+    }
+
     function peg$parseNotSQuote() {
       var s0, s1, s2;
 
       peg$silentFails++;
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c179.test(input.charAt(peg$currPos))) {
+      if (peg$c184.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c180); }
+        if (peg$silentFails === 0) { peg$fail(peg$c185); }
       }
       while (s2 !== peg$FAILED) {
         s1.push(s2);
-        if (peg$c179.test(input.charAt(peg$currPos))) {
+        if (peg$c184.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c180); }
+          if (peg$silentFails === 0) { peg$fail(peg$c185); }
         }
       }
       if (s1 !== peg$FAILED) {
@@ -30159,7 +30366,7 @@ module.exports = (function() {
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c178); }
+        if (peg$silentFails === 0) { peg$fail(peg$c183); }
       }
 
       return s0;
@@ -30171,21 +30378,21 @@ module.exports = (function() {
       peg$silentFails++;
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c182.test(input.charAt(peg$currPos))) {
+      if (peg$c187.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c183); }
+        if (peg$silentFails === 0) { peg$fail(peg$c188); }
       }
       while (s2 !== peg$FAILED) {
         s1.push(s2);
-        if (peg$c182.test(input.charAt(peg$currPos))) {
+        if (peg$c187.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c183); }
+          if (peg$silentFails === 0) { peg$fail(peg$c188); }
         }
       }
       if (s1 !== peg$FAILED) {
@@ -30195,7 +30402,7 @@ module.exports = (function() {
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c181); }
+        if (peg$silentFails === 0) { peg$fail(peg$c186); }
       }
 
       return s0;
@@ -30207,24 +30414,24 @@ module.exports = (function() {
       peg$silentFails++;
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c185.test(input.charAt(peg$currPos))) {
+      if (peg$c190.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c186); }
+        if (peg$silentFails === 0) { peg$fail(peg$c191); }
       }
       if (s2 === peg$FAILED) {
         s2 = peg$parseSingleLineComment();
       }
       while (s2 !== peg$FAILED) {
         s1.push(s2);
-        if (peg$c185.test(input.charAt(peg$currPos))) {
+        if (peg$c190.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c186); }
+          if (peg$silentFails === 0) { peg$fail(peg$c191); }
         }
         if (s2 === peg$FAILED) {
           s2 = peg$parseSingleLineComment();
@@ -30237,7 +30444,7 @@ module.exports = (function() {
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c184); }
+        if (peg$silentFails === 0) { peg$fail(peg$c189); }
       }
 
       return s0;
@@ -30249,12 +30456,12 @@ module.exports = (function() {
       peg$silentFails++;
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c185.test(input.charAt(peg$currPos))) {
+      if (peg$c190.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c186); }
+        if (peg$silentFails === 0) { peg$fail(peg$c191); }
       }
       if (s2 === peg$FAILED) {
         s2 = peg$parseSingleLineComment();
@@ -30262,12 +30469,12 @@ module.exports = (function() {
       if (s2 !== peg$FAILED) {
         while (s2 !== peg$FAILED) {
           s1.push(s2);
-          if (peg$c185.test(input.charAt(peg$currPos))) {
+          if (peg$c190.test(input.charAt(peg$currPos))) {
             s2 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s2 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c186); }
+            if (peg$silentFails === 0) { peg$fail(peg$c191); }
           }
           if (s2 === peg$FAILED) {
             s2 = peg$parseSingleLineComment();
@@ -30283,7 +30490,7 @@ module.exports = (function() {
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c187); }
+        if (peg$silentFails === 0) { peg$fail(peg$c192); }
       }
 
       return s0;
@@ -30293,12 +30500,12 @@ module.exports = (function() {
       var s0, s1, s2, s3, s4, s5;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2) === peg$c188) {
-        s1 = peg$c188;
+      if (input.substr(peg$currPos, 2) === peg$c193) {
+        s1 = peg$c193;
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c189); }
+        if (peg$silentFails === 0) { peg$fail(peg$c194); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
@@ -30308,7 +30515,7 @@ module.exports = (function() {
         s5 = peg$parseLineTerminator();
         peg$silentFails--;
         if (s5 === peg$FAILED) {
-          s4 = peg$c64;
+          s4 = peg$c70;
         } else {
           peg$currPos = s4;
           s4 = peg$c0;
@@ -30319,7 +30526,7 @@ module.exports = (function() {
             peg$currPos++;
           } else {
             s5 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c190); }
+            if (peg$silentFails === 0) { peg$fail(peg$c195); }
           }
           if (s5 !== peg$FAILED) {
             s4 = [s4, s5];
@@ -30340,7 +30547,7 @@ module.exports = (function() {
           s5 = peg$parseLineTerminator();
           peg$silentFails--;
           if (s5 === peg$FAILED) {
-            s4 = peg$c64;
+            s4 = peg$c70;
           } else {
             peg$currPos = s4;
             s4 = peg$c0;
@@ -30351,7 +30558,7 @@ module.exports = (function() {
               peg$currPos++;
             } else {
               s5 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c190); }
+              if (peg$silentFails === 0) { peg$fail(peg$c195); }
             }
             if (s5 !== peg$FAILED) {
               s4 = [s4, s5];
@@ -30383,12 +30590,12 @@ module.exports = (function() {
     function peg$parseLineTerminator() {
       var s0;
 
-      if (peg$c191.test(input.charAt(peg$currPos))) {
+      if (peg$c196.test(input.charAt(peg$currPos))) {
         s0 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c192); }
+        if (peg$silentFails === 0) { peg$fail(peg$c197); }
       }
 
       return s0;
@@ -30397,6 +30604,7 @@ module.exports = (function() {
 
       var base = { op: 'literal', value: [{}] };
       var dataRef = { op: 'ref', name: 'data' };
+      var dateRegExp = /^\d\d\d\d-\d\d-\d\d(?:T(?:\d\d)?(?::\d\d)?(?::\d\d)?(?:.\d\d\d)?)?Z?$/;
 
       // See here: https://www.drupal.org/node/141051
       var reservedWords = {
@@ -30494,7 +30702,7 @@ module.exports = (function() {
               name: extract.label,
               operand: {
                 op: 'aggregate',
-                operand: dataRef,
+                operand: from,
                 fn: 'group',
                 attribute: groupBy
               }

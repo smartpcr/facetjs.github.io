@@ -142,8 +142,6 @@ var wikiDataset = Dataset.fromJS({
   source: 'druid',
   dataSource: 'wikipedia_editstream',  // The datasource name in Druid
   timeAttribute: 'time',  // Druid's anonymous time attribute will be called 'time'
-  forceInterval: true,  // Do not issue queries on unbounded time (no interval set)
-  approximate: true,  // Allow approximate results, Druid is not as awesome of you stick to the exact stuff
   requester: druidRequester
 });
 ```

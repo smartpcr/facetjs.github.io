@@ -44,8 +44,8 @@ context = {
     source: 'druid',
     dataSource: 'diamonds',
     timeAttribute: 'time',
-    forceInterval: true,
-    approximate: true,
+    allowEternity: true,
+    allowSelectQueries: true,
     context: null,
     attributes: {
       time: { type: 'TIME' },
