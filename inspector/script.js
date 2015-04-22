@@ -1,6 +1,6 @@
-var facetCore = facet.core;
-var Expression = facetCore.Expression;
-var Dataset = facetCore.Dataset;
+var $ = facet.$;
+var Expression = facet.Expression;
+var Dataset = facet.Dataset;
 
 var inputField = d3.select('#input');
 var outputField = d3.select('#output');
