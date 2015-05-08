@@ -1,4 +1,10 @@
 !function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.facet=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+/// <reference path="../typings/q/Q.d.ts" />
+/// <reference path="../definitions/higher-object.d.ts" />
+/// <reference path="../definitions/chronology.d.ts" />
+/// <reference path="../definitions/locator.d.ts" />
+/// <reference path="../definitions/requester.d.ts" />
+/// <reference path="../definitions/druid.d.ts" />
 "use strict";
 var HigherObject = require("higher-object");
 var q = require("q");
@@ -17,8 +23,8 @@ function deduplicateSort(a) {
     a = a.sort();
     var newA = [];
     var last = null;
-    for (var i = 0; i < a.length; i++) {
-        var v = a[i];
+    for (var _i = 0; _i < a.length; _i++) {
+        var v = a[_i];
         if (v !== last)
             newA.push(v);
         last = v;
@@ -27,11 +33,11 @@ function deduplicateSort(a) {
 }
 function multiMerge(elements, mergeFn) {
     var newElements = [];
-    for (var i = 0; i < elements.length; i++) {
-        var accumulator = elements[i];
+    for (var _i = 0; _i < elements.length; _i++) {
+        var accumulator = elements[_i];
         var tempElements = [];
-        for (var j = 0; j < newElements.length; j++) {
-            var newElement = newElements[j];
+        for (var _a = 0; _a < newElements.length; _a++) {
+            var newElement = newElements[_a];
             var mergeElement = mergeFn(accumulator, newElement);
             if (mergeElement) {
                 accumulator = mergeElement;
@@ -46,13 +52,30 @@ function multiMerge(elements, mergeFn) {
     return newElements;
 }
 function arraysEqual(a, b) {
-    return a.length === b.length && a.every(function (item, i) { return (item === b[i]); });
+    var length = a.length;
+    if (length !== b.length)
+        return false;
+    for (var i = 0; i < length; i++) {
+        if (a[i] !== b[i])
+            return false;
+    }
+    return true;
+}
+function higherArraysEqual(a, b) {
+    var length = a.length;
+    if (length !== b.length)
+        return false;
+    for (var i = 0; i < length; i++) {
+        if (!a[i].equals(b[i]))
+            return false;
+    }
+    return true;
 }
 var expressionParser;
 var sqlParser;
 var Facet;
 (function (Facet) {
-    Facet.version = '0.15.1';
+    Facet.version = '0.15.4';
     Facet.isInstanceOf = HigherObject.isInstanceOf;
     Facet.isHigherObject = HigherObject.isHigherObject;
     Facet.Timezone = Chronology.Timezone;
@@ -70,7 +93,7 @@ var Facet;
     }
     Facet.safeAdd = safeAdd;
     function find(array, fn) {
-        for (var i = 0; i < array.length; i++) {
+        for (var i = 0, n = array.length; i < n; i++) {
             var a = array[i];
             if (fn.call(array, a, i))
                 return a;
@@ -295,7 +318,10 @@ var Facet;
     function timeToSQL(date) {
         if (!date)
             return null;
-        var str = date.toISOString().replace("T", " ").replace(/\.\d\d\dZ$/, "").replace(" 00:00:00", "");
+        var str = date.toISOString()
+            .replace("T", " ")
+            .replace(/\.\d\d\dZ$/, "")
+            .replace(" 00:00:00", "");
         return "'" + str + "'";
     }
     Facet.timeToSQL = timeToSQL;
@@ -336,11 +362,6 @@ var Facet;
     }
     function isPositiveInteger(n) {
         return isInteger(n) && 0 < n;
-    }
-    function repeatString(str, times) {
-        if (times <= 0)
-            return "";
-        return new Array(times + 1).join(str);
     }
     var check;
     var AttributeInfo = (function () {
@@ -395,7 +416,7 @@ var Facet;
         };
         AttributeInfo.prototype.toString = function () {
             var special = this.special || 'basic';
-            return "" + special + "(" + this.type + ")";
+            return special + "(" + this.type + ")";
         };
         AttributeInfo.prototype.valueOf = function () {
             var value = {
@@ -425,7 +446,9 @@ var Facet;
             return this.toJS();
         };
         AttributeInfo.prototype.equals = function (other) {
-            return AttributeInfo.isAttributeInfo(other) && this.special === other.special && this.type === other.type;
+            return AttributeInfo.isAttributeInfo(other) &&
+                this.special === other.special &&
+                this.type === other.type;
         };
         AttributeInfo.prototype.serialize = function (value) {
             return value;
@@ -501,7 +524,11 @@ var Facet;
             return attributeMetaSpec;
         };
         RangeAttributeInfo.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.separator === other.separator && this.rangeSize === other.rangeSize && this.digitsBeforeDecimal === other.digitsBeforeDecimal && this.digitsAfterDecimal === other.digitsAfterDecimal;
+            return _super.prototype.equals.call(this, other) &&
+                this.separator === other.separator &&
+                this.rangeSize === other.rangeSize &&
+                this.digitsBeforeDecimal === other.digitsBeforeDecimal &&
+                this.digitsAfterDecimal === other.digitsAfterDecimal;
         };
         RangeAttributeInfo.prototype._serializeNumber = function (value) {
             if (value === null)
@@ -514,11 +541,11 @@ var Facet;
             var before = valueStrSplit[0];
             var after = valueStrSplit[1];
             if (this.digitsBeforeDecimal) {
-                before = repeatString("0", this.digitsBeforeDecimal - before.length) + before;
+                before = repeat("0", this.digitsBeforeDecimal - before.length) + before;
             }
             if (this.digitsAfterDecimal) {
                 after || (after = "");
-                after += repeatString("0", this.digitsAfterDecimal - after.length);
+                after += repeat("0", this.digitsAfterDecimal - after.length);
             }
             valueStr = before;
             if (after)
@@ -711,7 +738,8 @@ var Facet;
             return this.toJS();
         };
         Dataset.prototype.equals = function (other) {
-            return Dataset.isDataset(other) && this.source === other.source;
+            return Dataset.isDataset(other) &&
+                this.source === other.source;
         };
         Dataset.prototype.getId = function () {
             return this.source;
@@ -799,47 +827,23 @@ var Facet;
         'DATASET': 12
     };
     var defaultFormatter = {
-        'NULL': function (v) {
-            return 'NULL';
-        },
-        'TIME': function (v) {
-            return v.toISOString();
-        },
-        'TIME_RANGE': function (v) {
-            return String(v);
-        },
-        'SET/TIME': function (v) {
-            return String(v);
-        },
-        'SET/TIME_RANGE': function (v) {
-            return String(v);
-        },
+        'NULL': function (v) { return 'NULL'; },
+        'TIME': function (v) { return v.toISOString(); },
+        'TIME_RANGE': function (v) { return String(v); },
+        'SET/TIME': function (v) { return String(v); },
+        'SET/TIME_RANGE': function (v) { return String(v); },
         'STRING': function (v) {
             if (v.indexOf('"') === -1)
                 return v;
             return '"' + v.replace(/"/g, '""') + '"';
         },
-        'SET/STRING': function (v) {
-            return String(v);
-        },
-        'BOOLEAN': function (v) {
-            return String(v);
-        },
-        'NUMBER': function (v) {
-            return String(v);
-        },
-        'NUMBER_RANGE': function (v) {
-            return String(v);
-        },
-        'SET/NUMBER': function (v) {
-            return String(v);
-        },
-        'SET/NUMBER_RANGE': function (v) {
-            return String(v);
-        },
-        'DATASET': function (v) {
-            return 'DATASET';
-        }
+        'SET/STRING': function (v) { return String(v); },
+        'BOOLEAN': function (v) { return String(v); },
+        'NUMBER': function (v) { return String(v); },
+        'NUMBER_RANGE': function (v) { return String(v); },
+        'SET/NUMBER': function (v) { return String(v); },
+        'SET/NUMBER_RANGE': function (v) { return String(v); },
+        'DATASET': function (v) { return 'DATASET'; }
     };
     function isDate(dt) {
         return Boolean(dt.toISOString);
@@ -936,7 +940,8 @@ var Facet;
             return "NativeDataset(" + this.data.length + ")";
         };
         NativeDataset.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.data.length === other.data.length;
+            return _super.prototype.equals.call(this, other) &&
+                this.data.length === other.data.length;
         };
         NativeDataset.prototype.basis = function () {
             var data = this.data;
@@ -949,9 +954,8 @@ var Facet;
         };
         NativeDataset.prototype.apply = function (name, exFn) {
             var data = this.data;
-            var n = data.length;
-            for (var i = 0; i < n; i++) {
-                var datum = data[i];
+            for (var _i = 0; _i < data.length; _i++) {
+                var datum = data[_i];
                 datum[name] = exFn(datum);
             }
             this.attributes = null;
@@ -972,9 +976,8 @@ var Facet;
         };
         NativeDataset.prototype.def = function (name, exFn) {
             var data = this.data;
-            var n = data.length;
-            for (var i = 0; i < n; i++) {
-                var datum = data[i];
+            for (var _i = 0; _i < data.length; _i++) {
+                var datum = data[_i];
                 datum.$def = datum.$def || Object.create(null);
                 datum.$def[name] = exFn(datum, true);
             }
@@ -1006,18 +1009,18 @@ var Facet;
         NativeDataset.prototype.sum = function (attrFn) {
             var sum = 0;
             var data = this.data;
-            var n = data.length;
-            for (var i = 0; i < n; i++) {
-                sum += attrFn(data[i]);
+            for (var _i = 0; _i < data.length; _i++) {
+                var datum = data[_i];
+                sum += attrFn(datum);
             }
             return sum;
         };
         NativeDataset.prototype.min = function (attrFn) {
             var min = Infinity;
             var data = this.data;
-            var n = data.length;
-            for (var i = 0; i < n; i++) {
-                var v = attrFn(data[i]);
+            for (var _i = 0; _i < data.length; _i++) {
+                var datum = data[_i];
+                var v = attrFn(datum);
                 if (v < min)
                     min = v;
             }
@@ -1026,9 +1029,9 @@ var Facet;
         NativeDataset.prototype.max = function (attrFn) {
             var max = Infinity;
             var data = this.data;
-            var n = data.length;
-            for (var i = 0; i < n; i++) {
-                var v = attrFn(data[i]);
+            for (var _i = 0; _i < data.length; _i++) {
+                var datum = data[_i];
+                var v = attrFn(datum);
                 if (max < v)
                     max = v;
             }
@@ -1037,9 +1040,8 @@ var Facet;
         NativeDataset.prototype.group = function (attrFn, attribute) {
             var splits = {};
             var data = this.data;
-            var n = data.length;
-            for (var i = 0; i < n; i++) {
-                var datum = data[i];
+            for (var _i = 0; _i < data.length; _i++) {
+                var datum = data[_i];
                 var v = attrFn(datum);
                 splits[v] = v;
             }
@@ -1128,16 +1130,15 @@ var Facet;
             var otherKey = other.key;
             var thisData = this.data;
             var otherData = other.data;
-            var datum;
             var k;
             var mapping = Object.create(null);
             for (var i = 0; i < thisData.length; i++) {
-                datum = thisData[i];
+                var datum = thisData[i];
                 k = String(thisKey ? datum[thisKey] : i);
                 mapping[k] = [datum];
             }
             for (var i = 0; i < otherData.length; i++) {
-                datum = otherData[i];
+                var datum = otherData[i];
                 k = String(otherKey ? datum[otherKey] : i);
                 if (!mapping[k])
                     mapping[k] = [];
@@ -1188,11 +1189,11 @@ var Facet;
         };
         NativeDataset.prototype._flattenHelper = function (flattenedColumns, prefix, context, flat) {
             var data = this.data;
-            for (var i = 0; i < data.length; i++) {
-                var datum = data[i];
+            for (var _i = 0; _i < data.length; _i++) {
+                var datum = data[_i];
                 var flatDatum = copy(context);
-                for (var j = 0; j < flattenedColumns.length; j++) {
-                    var flattenedColumn = flattenedColumns[j];
+                for (var _a = 0; _a < flattenedColumns.length; _a++) {
+                    var flattenedColumn = flattenedColumns[_a];
                     if (flattenedColumn.type === 'DATASET') {
                         datum[flattenedColumn.name]._flattenHelper(flattenedColumn.columns, prefix + flattenedColumn.name + '.', flatDatum, flat);
                     }
@@ -1409,7 +1410,8 @@ var Facet;
             }
         };
         RemoteDataset.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.filter.equals(other.filter);
+            return _super.prototype.equals.call(this, other) &&
+                this.filter.equals(other.filter);
         };
         RemoteDataset.prototype.getId = function () {
             return _super.prototype.getId.call(this) + ':' + this.filter.toString();
@@ -1495,14 +1497,16 @@ var Facet;
         RemoteDataset.prototype.getExistingActionForExpression = function (expression) {
             var key = expression.toString();
             var defs = this.defs;
-            for (var i = 0; i < defs.length; i++) {
-                if (defs[i].expression.toString() === key)
-                    return defs[i];
+            for (var _i = 0; _i < defs.length; _i++) {
+                var def = defs[_i];
+                if (def.expression.toString() === key)
+                    return def;
             }
             var applies = this.applies;
-            for (var i = 0; i < applies.length; i++) {
-                if (applies[i].expression.toString() === key)
-                    return applies[i];
+            for (var _a = 0; _a < applies.length; _a++) {
+                var apply = applies[_a];
+                if (apply.expression.toString() === key)
+                    return apply;
             }
             return null;
         };
@@ -1510,8 +1514,9 @@ var Facet;
             if (hasOwnProperty(this.attributes, name))
                 return true;
             var defs = this.defs;
-            for (var i = 0; i < defs.length; i++) {
-                if (defs[i].name === name)
+            for (var _i = 0; _i < defs.length; _i++) {
+                var def = defs[_i];
+                if (def.name === name)
                     return true;
             }
             return false;
@@ -1533,8 +1538,9 @@ var Facet;
             if (sortOn !== this.key)
                 return false;
             var applies = this.applies;
-            for (var i = 0; i < applies.length; i++) {
-                if (applies[i].name === sortOn)
+            for (var _i = 0; _i < applies.length; _i++) {
+                var apply = applies[_i];
+                if (apply.name === sortOn)
                     return false;
             }
             return true;
@@ -1566,15 +1572,17 @@ var Facet;
                     else {
                         name = _this.getTempName(namesUsed);
                         namesUsed.push(name);
-                        actions.push(newActionAsDef ? new Facet.DefAction({
-                            action: 'def',
-                            name: name,
-                            expression: ex
-                        }) : new Facet.ApplyAction({
-                            action: 'apply',
-                            name: name,
-                            expression: ex
-                        }));
+                        actions.push(newActionAsDef ?
+                            new Facet.DefAction({
+                                action: 'def',
+                                name: name,
+                                expression: ex
+                            }) :
+                            new Facet.ApplyAction({
+                                action: 'apply',
+                                name: name,
+                                expression: ex
+                            }));
                     }
                     return new Facet.RefExpression({
                         op: 'ref',
@@ -1636,7 +1644,10 @@ var Facet;
                             break;
                         case 'split':
                             var defExpression = action.expression;
-                            if (defExpression instanceof Facet.ActionsExpression && defExpression.actions.length === 1 && defExpression.actions[0].action === 'filter' && defExpression.actions[0].expression.equals(this.split.is(new Facet.RefExpression({ op: 'ref', name: this.key, nest: 1, type: this.split.type })))) {
+                            if (defExpression instanceof Facet.ActionsExpression &&
+                                defExpression.actions.length === 1 &&
+                                defExpression.actions[0].action === 'filter' &&
+                                defExpression.actions[0].expression.equals(this.split.is(new Facet.RefExpression({ op: 'ref', name: this.key, nest: 1, type: this.split.type })))) {
                             }
                             else {
                                 return null;
@@ -1670,8 +1681,8 @@ var Facet;
                     if (action.name === this.key)
                         return null;
                     var basicActions = this.processApply(action);
-                    for (var i = 0; i < basicActions.length; i++) {
-                        var basicAction = basicActions[i];
+                    for (var _i = 0; _i < basicActions.length; _i++) {
+                        var basicAction = basicActions[_i];
                         if (basicAction instanceof Facet.ApplyAction) {
                             value.applies = value.applies.concat(basicAction);
                             value.attributes = immutableAdd(value.attributes, basicAction.name, new Facet.AttributeInfo({ type: basicAction.expression.type }));
@@ -1719,8 +1730,8 @@ var Facet;
                     datum[this.key] = getSampleValue(this.split.type, this.split);
                 }
                 var applies = this.applies;
-                for (var i = 0; i < applies.length; i++) {
-                    var apply = applies[i];
+                for (var _i = 0; _i < applies.length; _i++) {
+                    var apply = applies[_i];
                     datum[apply.name] = getSampleValue(apply.expression.type, apply.expression);
                 }
             }
@@ -1745,7 +1756,8 @@ var Facet;
             if (!hasOwnProperty(queryAndPostProcess, 'query') || typeof queryAndPostProcess.postProcess !== 'function') {
                 return Q.reject(new Error('no error query or postProcess'));
             }
-            return this.requester({ query: queryAndPostProcess.query }).then(queryAndPostProcess.postProcess);
+            return this.requester({ query: queryAndPostProcess.query })
+                .then(queryAndPostProcess.postProcess);
         };
         RemoteDataset.prototype.needsIntrospect = function () {
             return !this.attributes;
@@ -1771,7 +1783,9 @@ var Facet;
             }
             var value = this.valueOf();
             var ClassFn = Facet.Dataset.classMap[this.source];
-            return this.requester({ query: queryAndPostProcess.query }).then(queryAndPostProcess.postProcess).then(function (attributes) {
+            return this.requester({ query: queryAndPostProcess.query })
+                .then(queryAndPostProcess.postProcess)
+                .then(function (attributes) {
                 value.attributes = attributes;
                 return (new ClassFn(value));
             });
@@ -1947,7 +1961,10 @@ var Facet;
             return String(a);
         };
         Range.prototype._equalsHelper = function (other) {
-            return Boolean(other) && this.bounds === other.bounds && this._endpointEqual(this.start, other.start) && this._endpointEqual(this.end, other.end);
+            return Boolean(other) &&
+                this.bounds === other.bounds &&
+                this._endpointEqual(this.start, other.start) &&
+                this._endpointEqual(this.end, other.end);
         };
         Range.prototype.toString = function () {
             var bounds = this.bounds;
@@ -1990,10 +2007,13 @@ var Facet;
             return true;
         };
         Range.prototype.intersects = function (other) {
-            return this.contains(other.start) || this.contains(other.end) || other.contains(this.start) || other.contains(this.end) || this._equalsHelper(other);
+            return this.contains(other.start) || this.contains(other.end)
+                || other.contains(this.start) || other.contains(this.end)
+                || this._equalsHelper(other);
         };
         Range.prototype.adjacent = function (other) {
-            return (this._endpointEqual(this.end, other.start) && this.openEnd() !== other.openStart()) || (this._endpointEqual(this.start, other.end) && this.openStart() !== other.openEnd());
+            return (this._endpointEqual(this.end, other.start) && this.openEnd() !== other.openStart())
+                || (this._endpointEqual(this.start, other.end) && this.openStart() !== other.openEnd());
         };
         Range.prototype.mergeable = function (other) {
             return this.intersects(other) || this.adjacent(other);
@@ -2169,8 +2189,9 @@ var Facet;
     function hashFromJS(xs, setType) {
         var keyFn = setType === 'TIME' ? dateString : String;
         var hash = Object.create(null);
-        for (var i = 0; i < xs.length; i++) {
-            var x = Facet.valueFromJS(xs[i], setType);
+        for (var _i = 0; _i < xs.length; _i++) {
+            var xv = xs[_i];
+            var x = Facet.valueFromJS(xv, setType);
             hash[keyFn(x)] = x;
         }
         return hash;
@@ -2183,8 +2204,8 @@ var Facet;
         for (var k in elements) {
             var accumulator = elements[k];
             var newElementsKeys = Object.keys(newElements);
-            for (var i = 0; i < newElementsKeys.length; i++) {
-                var newElementsKey = newElementsKeys[i];
+            for (var _i = 0; _i < newElementsKeys.length; _i++) {
+                var newElementsKey = newElementsKeys[_i];
                 var newElement = newElements[newElementsKey];
                 var unionElement = accumulator.union(newElement);
                 if (unionElement) {
@@ -2304,7 +2325,9 @@ var Facet;
             return 'SET_' + this.setType + '(' + Object.keys(this.elements).length + ')';
         };
         Set.prototype.equals = function (other) {
-            return Set.isSet(other) && this.setType === other.setType && Object.keys(this.elements).sort().join('') === Object.keys(other.elements).sort().join('');
+            return Set.isSet(other) &&
+                this.setType === other.setType &&
+                Object.keys(this.elements).sort().join('') === Object.keys(other.elements).sort().join('');
         };
         Set.prototype.empty = function () {
             var elements = this.elements;
@@ -2340,8 +2363,8 @@ var Facet;
             if (this.setType === 'NUMBER_RANGE' || this.setType === 'TIME_RANGE') {
                 var elements = this.getElements();
                 var simpleElements = [];
-                for (var i = 0; i < elements.length; i++) {
-                    var element = elements[i];
+                for (var _i = 0; _i < elements.length; _i++) {
+                    var element = elements[_i];
                     if (element.degenerate()) {
                         simpleElements.push(element.start);
                     }
@@ -2562,7 +2585,10 @@ var Facet;
             return "Shape(" + this.x + ',' + this.y + ")";
         };
         Shape.prototype.equals = function (other) {
-            return Shape.isShape(other) && this.shape === other.shape && this.x === other.x && this.y === other.y;
+            return Shape.isShape(other) &&
+                this.shape === other.shape &&
+                this.x === other.x &&
+                this.y === other.y;
         };
         Shape.type = 'SHAPE';
         Shape.classMap = {};
@@ -2591,7 +2617,9 @@ var Facet;
             return "RectangleShape(" + this.width + ',' + this.height + ")";
         };
         RectangleShape.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.width === other.width && this.height === other.height;
+            return _super.prototype.equals.call(this, other) &&
+                this.width === other.width &&
+                this.height === other.height;
         };
         RectangleShape.prototype.margin = function (parameters) {
             var xw = margin1d(parameters.left, parameters.width, parameters.right, this.width);
@@ -2623,7 +2651,12 @@ var Facet;
         return date;
     }
     function dateToIntervalPart(date) {
-        return date.toISOString().replace('Z', '').replace('.000', '').replace(/:00$/, '').replace(/:00$/, '').replace(/T00$/, '');
+        return date.toISOString()
+            .replace('Z', '')
+            .replace('.000', '')
+            .replace(/:00$/, '')
+            .replace(/:00$/, '')
+            .replace(/T00$/, '');
     }
     var check;
     var TimeRange = (function (_super) {
@@ -2714,7 +2747,7 @@ var Facet;
 var Facet;
 (function (Facet) {
     var DUMMY_NAME = '!DUMMY';
-    var timePartToFormat = {
+    var TIME_PART_TO_FORMAT = {
         SECOND_OF_MINUTE: "s",
         SECOND_OF_HOUR: "m'*60+'s",
         SECOND_OF_DAY: "H'*60+'m'*60+'s",
@@ -2741,10 +2774,10 @@ var Facet;
             return null;
         var parts = exprStr.split(/(?=[*+])/);
         var acc = parseInt(parts.shift(), 10);
-        for (var i = 0; i < parts.length; i++) {
-            var p = parts[i];
-            var v = parseInt(p.substring(1), 10);
-            acc = p[0] === '*' ? acc * v : acc + v;
+        for (var _i = 0; _i < parts.length; _i++) {
+            var part = parts[_i];
+            var v = parseInt(part.substring(1), 10);
+            acc = part[0] === '*' ? acc * v : acc + v;
         }
         return acc;
     }
@@ -2777,19 +2810,19 @@ var Facet;
             }
             var result = res[0].result;
             var datum = {};
-            for (var i = 0; i < applies.length; i++) {
-                var apply = applies[i];
-                var name = apply.name;
+            for (var _i = 0; _i < applies.length; _i++) {
+                var apply = applies[_i];
+                var name_1 = apply.name;
                 var aggregate = apply.expression.fn;
                 if (typeof result === 'string') {
-                    datum[name] = new Date(result);
+                    datum[name_1] = new Date(result);
                 }
                 else {
                     if (aggregate === 'max') {
-                        datum[name] = new Date((result['maxIngestedEventTime'] || result['maxTime']));
+                        datum[name_1] = new Date((result['maxIngestedEventTime'] || result['maxTime']));
                     }
                     else {
-                        datum[name] = new Date((result['minTime']));
+                        datum[name_1] = new Date((result['minTime']));
                     }
                 }
             }
@@ -2821,7 +2854,9 @@ var Facet;
                     if (next) {
                         nextTimestamp = new Date(next.timestamp);
                     }
-                    var rangeEnd = (nextTimestamp && rangeStart.valueOf() < nextTimestamp.valueOf() && nextTimestamp.valueOf() - rangeStart.valueOf() < canonicalDurationLengthAndThenSome) ? nextTimestamp : duration.move(rangeStart, timezone, 1);
+                    var rangeEnd = (nextTimestamp && rangeStart.valueOf() < nextTimestamp.valueOf() &&
+                        nextTimestamp.valueOf() - rangeStart.valueOf() < canonicalDurationLengthAndThenSome) ?
+                        nextTimestamp : duration.move(rangeStart, timezone, 1);
                     var datum = d.result;
                     cleanDatumInPlace(datum);
                     datum[label] = new Facet.TimeRange({ start: rangeStart, end: rangeEnd });
@@ -2962,7 +2997,13 @@ var Facet;
             return js;
         };
         DruidDataset.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && String(this.dataSource) === String(other.dataSource) && this.timeAttribute === other.timeAttribute && this.allowEternity === other.allowEternity && this.allowSelectQueries === other.allowSelectQueries && this.exactResultsOnly === other.exactResultsOnly && this.context === other.context;
+            return _super.prototype.equals.call(this, other) &&
+                String(this.dataSource) === String(other.dataSource) &&
+                this.timeAttribute === other.timeAttribute &&
+                this.allowEternity === other.allowEternity &&
+                this.allowSelectQueries === other.allowSelectQueries &&
+                this.exactResultsOnly === other.exactResultsOnly &&
+                this.context === other.context;
         };
         DruidDataset.prototype.getId = function () {
             return _super.prototype.getId.call(this) + ':' + this.dataSource;
@@ -3204,7 +3245,7 @@ var Facet;
                 };
             }
         };
-        DruidDataset.prototype.getBucketingDimension = function (attributeInfo, numberBucket) {
+        DruidDataset.prototype.getRangeBucketingDimension = function (attributeInfo, numberBucket) {
             var regExp = attributeInfo.getMatchingRegExpString();
             if (numberBucket && numberBucket.offset === 0 && numberBucket.size === attributeInfo.rangeSize)
                 numberBucket = null;
@@ -3227,9 +3268,12 @@ var Facet;
             var dimension = null;
             var dimensions = null;
             var granularity = 'all';
+            var aggregations = null;
+            var postAggregations = null;
             var postProcess = null;
             if (splitExpression instanceof Facet.RefExpression) {
-                var dimensionSpec = (splitExpression.name === label) ? label : { type: "default", dimension: splitExpression.name, outputName: label };
+                var dimensionSpec = (splitExpression.name === label) ?
+                    label : { type: "default", dimension: splitExpression.name, outputName: label };
                 if (this.havingFilter.equals(Facet.Expression.TRUE) && this.limit && !this.exactResultsOnly) {
                     var attributeInfo = this.getAttributesInfo(splitExpression.name);
                     queryType = 'topN';
@@ -3238,7 +3282,7 @@ var Facet;
                             type: "extraction",
                             dimension: splitExpression.name,
                             outputName: label,
-                            extractionFn: this.getBucketingDimension(attributeInfo, null)
+                            extractionFn: this.getRangeBucketingDimension(attributeInfo, null)
                         };
                         postProcess = postProcessTopNFactory(postProcessNumberBucketFactory(attributeInfo.rangeSize), label);
                     }
@@ -3284,7 +3328,7 @@ var Facet;
                 var refExpression = splitExpression.operand;
                 if (refExpression instanceof Facet.RefExpression) {
                     queryType = 'topN';
-                    var format = timePartToFormat[splitExpression.part];
+                    var format = TIME_PART_TO_FORMAT[splitExpression.part];
                     if (!format)
                         throw new Error("unsupported part in timePart expression " + splitExpression.part);
                     dimension = {
@@ -3323,31 +3367,53 @@ var Facet;
                 if (refExpression instanceof Facet.RefExpression) {
                     var attributeInfo = this.getAttributesInfo(refExpression.name);
                     queryType = "topN";
-                    switch (attributeInfo.type) {
-                        case 'NUMBER':
-                            var floorExpression = Facet.continuousFloorExpression("d", "Math.floor", splitExpression.size, splitExpression.offset);
-                            dimension = {
-                                type: "extraction",
-                                dimension: refExpression.name,
-                                outputName: label,
-                                extractionFn: {
-                                    type: "javascript",
-                                    'function': "function(d){d=Number(d); if(isNaN(d)) return 'null'; return " + floorExpression + ";}"
-                                }
-                            };
-                            postProcess = postProcessTopNFactory(Number, label);
-                            break;
-                        case 'NUMBER_RANGE':
-                            dimension = {
-                                type: "extraction",
-                                dimension: refExpression.name,
-                                outputName: label,
-                                extractionFn: this.getBucketingDimension(attributeInfo, splitExpression)
-                            };
-                            postProcess = postProcessTopNFactory(postProcessNumberBucketFactory(splitExpression.size), label);
-                            break;
-                        default:
-                            throw new Error("can not number bucket an attribute of type: " + attributeInfo.type);
+                    if (attributeInfo.type === 'NUMBER') {
+                        var floorExpression = Facet.continuousFloorExpression("d", "Math.floor", splitExpression.size, splitExpression.offset);
+                        dimension = {
+                            type: "extraction",
+                            dimension: refExpression.name,
+                            outputName: label,
+                            extractionFn: {
+                                type: "javascript",
+                                'function': "function(d){d=Number(d); if(isNaN(d)) return 'null'; return " + floorExpression + ";}"
+                            }
+                        };
+                        postProcess = postProcessTopNFactory(Number, label);
+                    }
+                    else if (attributeInfo instanceof Facet.RangeAttributeInfo) {
+                        dimension = {
+                            type: "extraction",
+                            dimension: refExpression.name,
+                            outputName: label,
+                            extractionFn: this.getRangeBucketingDimension(attributeInfo, splitExpression)
+                        };
+                        postProcess = postProcessTopNFactory(postProcessNumberBucketFactory(splitExpression.size), label);
+                    }
+                    else if (attributeInfo instanceof Facet.HistogramAttributeInfo) {
+                        if (this.exactResultsOnly) {
+                            throw new Error("can not use approximate histograms in exactResultsOnly mode");
+                        }
+                        var aggregation = {
+                            type: "approxHistogramFold",
+                            fieldName: refExpression.name
+                        };
+                        if (splitExpression.lowerLimit != null) {
+                            aggregation.lowerLimit = splitExpression.lowerLimit;
+                        }
+                        if (splitExpression.upperLimit != null) {
+                            aggregation.upperLimit = splitExpression.upperLimit;
+                        }
+                        aggregations = [aggregation];
+                        postAggregations = [{
+                                type: "buckets",
+                                name: "histogram",
+                                fieldName: "histogram",
+                                bucketSize: splitExpression.size,
+                                offset: splitExpression.offset
+                            }];
+                    }
+                    else {
+                        throw new Error("can not number bucket an attribute of type: " + attributeInfo.type);
                     }
                 }
                 else {
@@ -3362,25 +3428,39 @@ var Facet;
                 granularity: granularity,
                 dimension: dimension,
                 dimensions: dimensions,
+                aggregations: aggregations,
+                postAggregations: postAggregations,
                 postProcess: postProcess
             };
         };
-        DruidDataset.prototype.operandsToArithmetic = function (operands, fn) {
+        DruidDataset.prototype.operandsToArithmetic = function (operands, fn, aggregations) {
+            var _this = this;
             if (operands.length === 1) {
-                return this.expressionToPostAggregation(operands[0]);
+                return this.expressionToPostAggregation(operands[0], aggregations);
             }
             else {
                 return {
                     type: 'arithmetic',
                     fn: fn,
-                    fields: operands.map(this.expressionToPostAggregation, this)
+                    fields: operands.map(function (operand) {
+                        return _this.expressionToPostAggregation(operand, aggregations);
+                    }, this)
                 };
             }
         };
-        DruidDataset.prototype.expressionToPostAggregation = function (ex) {
+        DruidDataset.prototype.expressionToPostAggregation = function (ex, aggregations) {
             if (ex instanceof Facet.RefExpression) {
+                var refName = ex.name;
+                var accessType;
+                for (var _i = 0; _i < aggregations.length; _i++) {
+                    var aggregation = aggregations[_i];
+                    if (aggregation.name === refName) {
+                        var aggType = aggregation.type;
+                        accessType = (aggType === 'hyperUnique' || aggType === 'cardinality') ? 'hyperUniqueCardinality' : 'fieldAccess';
+                    }
+                }
                 return {
-                    type: 'fieldAccess',
+                    type: accessType,
                     fieldName: ex.name
                 };
             }
@@ -3418,22 +3498,22 @@ var Facet;
                         type: 'arithmetic',
                         fn: antiFn,
                         fields: [
-                            this.operandsToArithmetic(additive, fn),
-                            this.operandsToArithmetic(subtractive.map(function (op) { return op.operand; }), fn)
+                            this.operandsToArithmetic(additive, fn, aggregations),
+                            this.operandsToArithmetic(subtractive.map(function (op) { return op.operand; }), fn, aggregations)
                         ]
                     };
                 }
                 else {
-                    return this.operandsToArithmetic(additive, fn);
+                    return this.operandsToArithmetic(additive, fn, aggregations);
                 }
             }
             else {
                 throw new Error("can not convert expression to post agg: " + ex.toString());
             }
         };
-        DruidDataset.prototype.actionToPostAggregation = function (action) {
+        DruidDataset.prototype.actionToPostAggregation = function (action, aggregations) {
             if (action instanceof Facet.ApplyAction || action instanceof Facet.DefAction) {
-                var postAgg = this.expressionToPostAggregation(action.expression);
+                var postAgg = this.expressionToPostAggregation(action.expression, aggregations);
                 postAgg.name = action.name;
                 return postAgg;
             }
@@ -3441,33 +3521,80 @@ var Facet;
                 throw new Error("must be a def or apply action");
             }
         };
+        DruidDataset.prototype.makeStandardAggregation = function (name, aggregateExpression) {
+            var fn = aggregateExpression.fn;
+            var attribute = aggregateExpression.attribute;
+            var aggregation = {
+                name: name,
+                type: fn === "sum" ? "doubleSum" : fn
+            };
+            if (fn !== 'count') {
+                if (attribute instanceof Facet.RefExpression) {
+                    aggregation.fieldName = attribute.name;
+                }
+                else {
+                    throw new Error('can not support complex derived attributes (yet)');
+                }
+            }
+            var aggregateOperand = aggregateExpression.operand;
+            if (aggregateOperand instanceof Facet.ActionsExpression &&
+                aggregateOperand.actions.length === 1 &&
+                aggregateOperand.actions[0] instanceof Facet.FilterAction &&
+                this.canUseNativeAggregateFilter(aggregateOperand.actions[0].expression)) {
+                aggregation = {
+                    type: "filtered",
+                    name: name,
+                    filter: this.timelessFilterToDruid(aggregateOperand.actions[0].expression),
+                    aggregator: aggregation
+                };
+            }
+            return aggregation;
+        };
+        DruidDataset.prototype.makeCountDistinctAggregation = function (name, aggregateExpression) {
+            if (this.exactResultsOnly) {
+                throw new Error("approximate query not allowed");
+            }
+            if (aggregateExpression.operand.isOp('actions')) {
+                throw new Error("filtering on countDistinct aggregator isn't supported");
+            }
+            var attribute = aggregateExpression.attribute;
+            if (attribute instanceof Facet.RefExpression) {
+                var attributeInfo = this.getAttributesInfo(attribute.name);
+                if (attributeInfo instanceof Facet.UniqueAttributeInfo) {
+                    return {
+                        name: name,
+                        type: "hyperUnique",
+                        fieldName: attribute.name
+                    };
+                }
+                else {
+                    return {
+                        name: name,
+                        type: "cardinality",
+                        fieldNames: [attribute.name],
+                        byRow: true
+                    };
+                }
+            }
+            else {
+                throw new Error('can not compute distinctCount on derived aggregate');
+            }
+        };
         DruidDataset.prototype.actionToAggregation = function (action) {
             if (action instanceof Facet.ApplyAction || action instanceof Facet.DefAction) {
                 var aggregateExpression = action.expression;
                 if (aggregateExpression instanceof Facet.AggregateExpression) {
-                    var attribute = aggregateExpression.attribute;
-                    var aggregation = {
-                        name: action.name,
-                        type: aggregateExpression.fn === "sum" ? "doubleSum" : aggregateExpression.fn
-                    };
-                    if (aggregateExpression.fn !== 'count') {
-                        if (attribute instanceof Facet.RefExpression) {
-                            aggregation.fieldName = attribute.name;
-                        }
-                        else if (attribute) {
-                            throw new Error('can not support derived attributes (yet)');
-                        }
+                    switch (aggregateExpression.fn) {
+                        case "count":
+                        case "sum":
+                        case "min":
+                        case "max":
+                            return this.makeStandardAggregation(action.name, aggregateExpression);
+                        case "countDistinct":
+                            return this.makeCountDistinctAggregation(action.name, aggregateExpression);
+                        default:
+                            throw new Error("unsupported aggregate function " + aggregateExpression.fn);
                     }
-                    var aggregateOperand = aggregateExpression.operand;
-                    if (aggregateOperand instanceof Facet.ActionsExpression && aggregateOperand.actions.length === 1 && aggregateOperand.actions[0] instanceof Facet.FilterAction && this.canUseNativeAggregateFilter(aggregateOperand.actions[0].expression)) {
-                        aggregation = {
-                            type: "filtered",
-                            name: action.name,
-                            filter: this.timelessFilterToDruid(aggregateOperand.actions[0].expression),
-                            aggregator: aggregation
-                        };
-                    }
-                    return aggregation;
                 }
                 else {
                     throw new Error('can not support non aggregate aggregateExpression');
@@ -3497,7 +3624,7 @@ var Facet;
                     aggregations.push(_this.actionToAggregation(action));
                 }
                 else {
-                    postAggregations.push(_this.actionToPostAggregation(action));
+                    postAggregations.push(_this.actionToPostAggregation(action, aggregations));
                 }
             });
             return {
@@ -3606,7 +3733,8 @@ var Facet;
         DruidDataset.prototype.isMinMaxTimeApply = function (apply) {
             var applyExpression = apply.expression;
             if (applyExpression instanceof Facet.AggregateExpression) {
-                return this.isTimeRef(applyExpression.attribute) && (applyExpression.fn === "min" || applyExpression.fn === "max");
+                return this.isTimeRef(applyExpression.attribute) &&
+                    (applyExpression.fn === "min" || applyExpression.fn === "max");
             }
             else {
                 return false;
@@ -3688,6 +3816,10 @@ var Facet;
                         druidQuery.dimension = splitSpec.dimension;
                     if (splitSpec.dimensions)
                         druidQuery.dimensions = splitSpec.dimensions;
+                    if (splitSpec.aggregations)
+                        druidQuery.aggregations = splitSpec.aggregations;
+                    if (splitSpec.postAggregations)
+                        druidQuery.postAggregations = splitSpec.postAggregations;
                     var postProcess = splitSpec.postProcess;
                     switch (druidQuery.queryType) {
                         case 'timeseries':
@@ -3725,7 +3857,9 @@ var Facet;
                                 type: "default",
                                 limit: 500000,
                                 columns: [
-                                    sortAction ? { dimension: sortAction.expression.name, direction: sortAction.direction } : this.key
+                                    sortAction ?
+                                        { dimension: sortAction.expression.name, direction: sortAction.direction }
+                                        : this.key
                                 ]
                             };
                             if (this.limit) {
@@ -3839,7 +3973,8 @@ var Facet;
             return js;
         };
         MySQLDataset.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.table === other.table;
+            return _super.prototype.equals.call(this, other) &&
+                this.table === other.table;
         };
         MySQLDataset.prototype.getId = function () {
             return _super.prototype.getId.call(this) + ':' + this.table;
@@ -3885,7 +4020,8 @@ var Facet;
                     query.push("GROUP BY ''");
                     break;
                 case 'split':
-                    query.push([("" + this.split.getSQL(mySQLDialect) + " AS '" + this.key + "'")].concat(this.applies.map(function (apply) { return apply.getSQL(mySQLDialect); })).join(',\n'));
+                    query.push([(this.split.getSQL(mySQLDialect) + " AS '" + this.key + "'")]
+                        .concat(this.applies.map(function (apply) { return apply.getSQL(mySQLDialect); })).join(',\n'));
                     query.push('FROM ' + table);
                     if (!(this.filter.equals(Facet.Expression.TRUE))) {
                         query.push('WHERE ' + this.filter.getSQL(mySQLDialect));
@@ -3937,12 +4073,13 @@ var Facet;
     }
     function mergeRemotes(remotes) {
         var lookup = {};
-        for (var i = 0; i < remotes.length; i++) {
-            var remote = remotes[i];
+        for (var _i = 0; _i < remotes.length; _i++) {
+            var remote = remotes[_i];
             if (!remote)
                 continue;
-            for (var j = 0; j < remote.length; j++) {
-                lookup[remote[j]] = true;
+            for (var _a = 0; _a < remote.length; _a++) {
+                var r = remote[_a];
+                lookup[r] = true;
             }
         }
         var merged = Object.keys(lookup);
@@ -4086,7 +4223,9 @@ var Facet;
             return this.toJS();
         };
         Expression.prototype.equals = function (other) {
-            return Expression.isExpression(other) && this.op === other.op && this.type === other.type;
+            return Expression.isExpression(other) &&
+                this.op === other.op &&
+                this.type === other.type;
         };
         Expression.prototype.canHaveType = function (wantedType) {
             if (!this.type)
@@ -4314,18 +4453,10 @@ var Facet;
             newValue.operand = this;
             return new (Expression.classMap[newValue.op])(newValue);
         };
-        Expression.prototype.not = function () {
-            return this._performUnaryExpression({ op: 'not' });
-        };
-        Expression.prototype.match = function (re) {
-            return this._performUnaryExpression({ op: 'match', regexp: re });
-        };
-        Expression.prototype.negate = function () {
-            return this._performUnaryExpression({ op: 'negate' });
-        };
-        Expression.prototype.reciprocate = function () {
-            return this._performUnaryExpression({ op: 'reciprocate' });
-        };
+        Expression.prototype.not = function () { return this._performUnaryExpression({ op: 'not' }); };
+        Expression.prototype.match = function (re) { return this._performUnaryExpression({ op: 'match', regexp: re }); };
+        Expression.prototype.negate = function () { return this._performUnaryExpression({ op: 'negate' }); };
+        Expression.prototype.reciprocate = function () { return this._performUnaryExpression({ op: 'reciprocate' }); };
         Expression.prototype.numberBucket = function (size, offset) {
             if (offset === void 0) { offset = 0; }
             return this._performUnaryExpression({ op: 'numberBucket', size: size, offset: offset });
@@ -4355,27 +4486,14 @@ var Facet;
                 value: value
             });
         };
-        Expression.prototype.count = function () {
-            return this._performUnaryExpression({ op: 'aggregate', fn: 'count' });
-        };
-        Expression.prototype.sum = function (attr) {
-            return this._performAggregate('sum', attr);
-        };
-        Expression.prototype.min = function (attr) {
-            return this._performAggregate('min', attr);
-        };
-        Expression.prototype.max = function (attr) {
-            return this._performAggregate('max', attr);
-        };
-        Expression.prototype.average = function (attr) {
-            return this._performAggregate('average', attr);
-        };
-        Expression.prototype.quantile = function (attr, value) {
-            return this._performAggregate('quantile', attr, value);
-        };
-        Expression.prototype.group = function (attr) {
-            return this._performAggregate('group', attr);
-        };
+        Expression.prototype.count = function () { return this._performUnaryExpression({ op: 'aggregate', fn: 'count' }); };
+        Expression.prototype.sum = function (attr) { return this._performAggregate('sum', attr); };
+        Expression.prototype.min = function (attr) { return this._performAggregate('min', attr); };
+        Expression.prototype.max = function (attr) { return this._performAggregate('max', attr); };
+        Expression.prototype.average = function (attr) { return this._performAggregate('average', attr); };
+        Expression.prototype.countDistinct = function (attr) { return this._performAggregate('countDistinct', attr); };
+        Expression.prototype.quantile = function (attr, value) { return this._performAggregate('quantile', attr, value); };
+        Expression.prototype.group = function (attr) { return this._performAggregate('group', attr); };
         Expression.prototype.label = function (name) {
             return this._performUnaryExpression({
                 op: 'label',
@@ -4391,7 +4509,8 @@ var Facet;
                 throw new Error("could not guess data name in `split`, please provide one explicitly");
             }
             var incrementedSelf = this.incrementNesting(1);
-            return this.group(attribute).label(name).def(newDataName || dataName, incrementedSelf.filter(attribute.is($(name).incrementNesting(1))));
+            return this.group(attribute).label(name)
+                .def(newDataName || dataName, incrementedSelf.filter(attribute.is($(name).incrementNesting(1))));
         };
         Expression.prototype._performBinaryExpression = function (newValue, otherEx) {
             if (typeof otherEx === 'undefined')
@@ -4402,27 +4521,13 @@ var Facet;
             newValue.rhs = otherEx;
             return new (Expression.classMap[newValue.op])(newValue);
         };
-        Expression.prototype.is = function (ex) {
-            return this._performBinaryExpression({ op: 'is' }, ex);
-        };
-        Expression.prototype.isnt = function (ex) {
-            return this.is(ex).not();
-        };
-        Expression.prototype.lessThan = function (ex) {
-            return this._performBinaryExpression({ op: 'lessThan' }, ex);
-        };
-        Expression.prototype.lessThanOrEqual = function (ex) {
-            return this._performBinaryExpression({ op: 'lessThanOrEqual' }, ex);
-        };
-        Expression.prototype.greaterThan = function (ex) {
-            return this._performBinaryExpression({ op: 'greaterThan' }, ex);
-        };
-        Expression.prototype.greaterThanOrEqual = function (ex) {
-            return this._performBinaryExpression({ op: 'greaterThanOrEqual' }, ex);
-        };
-        Expression.prototype.contains = function (ex) {
-            return this._performBinaryExpression({ op: 'contains' }, ex);
-        };
+        Expression.prototype.is = function (ex) { return this._performBinaryExpression({ op: 'is' }, ex); };
+        Expression.prototype.isnt = function (ex) { return this.is(ex).not(); };
+        Expression.prototype.lessThan = function (ex) { return this._performBinaryExpression({ op: 'lessThan' }, ex); };
+        Expression.prototype.lessThanOrEqual = function (ex) { return this._performBinaryExpression({ op: 'lessThanOrEqual' }, ex); };
+        Expression.prototype.greaterThan = function (ex) { return this._performBinaryExpression({ op: 'greaterThan' }, ex); };
+        Expression.prototype.greaterThanOrEqual = function (ex) { return this._performBinaryExpression({ op: 'greaterThanOrEqual' }, ex); };
+        Expression.prototype.contains = function (ex) { return this._performBinaryExpression({ op: 'contains' }, ex); };
         Expression.prototype.in = function (ex, snd) {
             if (snd === void 0) { snd = null; }
             if (arguments.length === 2) {
@@ -4435,12 +4540,8 @@ var Facet;
             }
             return this._performBinaryExpression({ op: 'in' }, ex);
         };
-        Expression.prototype.union = function (ex) {
-            return this._performBinaryExpression({ op: 'union' }, ex);
-        };
-        Expression.prototype.join = function (ex) {
-            return this._performBinaryExpression({ op: 'join' }, ex);
-        };
+        Expression.prototype.union = function (ex) { return this._performBinaryExpression({ op: 'union' }, ex); };
+        Expression.prototype.join = function (ex) { return this._performBinaryExpression({ op: 'join' }, ex); };
         Expression.prototype._performNaryExpression = function (newValue, otherExs) {
             if (!otherExs.length)
                 throw new Error('must have at least one argument');
@@ -4644,7 +4745,8 @@ var Facet;
             return js;
         };
         UnaryExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.operand.equals(other.operand);
+            return _super.prototype.equals.call(this, other) &&
+                this.operand.equals(other.operand);
         };
         UnaryExpression.prototype.expressionCount = function () {
             return 1 + this.operand.expressionCount();
@@ -4678,7 +4780,8 @@ var Facet;
             else {
                 indexer.index++;
             }
-            return this.operand._everyHelper(iter, thisArg, indexer, depth + 1, nestDiff) && this._specialEvery(iter, thisArg, indexer, depth, nestDiff);
+            return this.operand._everyHelper(iter, thisArg, indexer, depth + 1, nestDiff)
+                && this._specialEvery(iter, thisArg, indexer, depth, nestDiff);
         };
         UnaryExpression.prototype._specialEvery = function (iter, thisArg, indexer, depth, nestDiff) {
             return true;
@@ -4747,9 +4850,7 @@ var Facet;
         }
         BinaryExpression.jsToValue = function (parameters) {
             var op = parameters.op;
-            var value = {
-                op: op
-            };
+            var value = { op: op };
             if (typeof parameters.lhs !== 'undefined' && parameters.lhs !== null) {
                 value.lhs = Facet.Expression.fromJSLoose(parameters.lhs);
             }
@@ -4777,7 +4878,9 @@ var Facet;
             return js;
         };
         BinaryExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.lhs.equals(other.lhs) && this.rhs.equals(other.rhs);
+            return _super.prototype.equals.call(this, other) &&
+                this.lhs.equals(other.lhs) &&
+                this.rhs.equals(other.rhs);
         };
         BinaryExpression.prototype.expressionCount = function () {
             return 1 + this.lhs.expressionCount() + this.rhs.expressionCount();
@@ -4812,14 +4915,15 @@ var Facet;
             var lhsType = this.lhs.type;
             var rhsType = this.rhs.type;
             if (lhsType && rhsType && lhsType !== rhsType) {
-                throw new TypeError("" + this.op + " expression must have matching types, (are: " + lhsType + ", " + rhsType + ")");
+                throw new TypeError(this.op + " expression must have matching types, (are: " + lhsType + ", " + rhsType + ")");
             }
         };
         BinaryExpression.prototype._checkNumberOrTime = function () {
             var lhs = this.lhs;
             var rhs = this.rhs;
-            if (!((lhs.canHaveType('NUMBER') && rhs.canHaveType('NUMBER')) || (lhs.canHaveType('TIME') && rhs.canHaveType('TIME')))) {
-                throw new TypeError("" + this.op + " expression has a bad type combination " + (lhs.type || '?') + ", " + (rhs.type || '?'));
+            if (!((lhs.canHaveType('NUMBER') && rhs.canHaveType('NUMBER'))
+                || (lhs.canHaveType('TIME') && rhs.canHaveType('TIME')))) {
+                throw new TypeError(this.op + " expression has a bad type combination " + (lhs.type || '?') + ", " + (rhs.type || '?'));
             }
         };
         BinaryExpression.prototype._everyHelper = function (iter, thisArg, indexer, depth, nestDiff) {
@@ -4830,7 +4934,8 @@ var Facet;
             else {
                 indexer.index++;
             }
-            return this.lhs._everyHelper(iter, thisArg, indexer, depth + 1, nestDiff) && this.rhs._everyHelper(iter, thisArg, indexer, depth + 1, nestDiff);
+            return this.lhs._everyHelper(iter, thisArg, indexer, depth + 1, nestDiff)
+                && this.rhs._everyHelper(iter, thisArg, indexer, depth + 1, nestDiff);
         };
         BinaryExpression.prototype._substituteHelper = function (substitutionFn, thisArg, indexer, depth, nestDiff) {
             var sub = substitutionFn.call(thisArg, this, indexer.index, depth, nestDiff);
@@ -4893,9 +4998,7 @@ var Facet;
         }
         NaryExpression.jsToValue = function (parameters) {
             var op = parameters.op;
-            var value = {
-                op: op
-            };
+            var value = { op: op };
             if (Array.isArray(parameters.operands)) {
                 value.operands = parameters.operands.map(function (operand) { return Facet.Expression.fromJSLoose(operand); });
             }
@@ -4915,21 +5018,14 @@ var Facet;
             return js;
         };
         NaryExpression.prototype.equals = function (other) {
-            if (!(_super.prototype.equals.call(this, other) && this.operands.length === other.operands.length))
-                return false;
-            var thisOperands = this.operands;
-            var otherOperands = other.operands;
-            for (var i = 0; i < thisOperands.length; i++) {
-                if (!thisOperands[i].equals(otherOperands[i]))
-                    return false;
-            }
-            return true;
+            return _super.prototype.equals.call(this, other) && higherArraysEqual(this.operands, other.operands);
         };
         NaryExpression.prototype.expressionCount = function () {
             var expressionCount = 1;
             var operands = this.operands;
-            for (var i = 0; i < operands.length; i++) {
-                expressionCount += operands[i].expressionCount();
+            for (var _i = 0; _i < operands.length; _i++) {
+                var operand = operands[_i];
+                expressionCount += operand.expressionCount();
             }
             return expressionCount;
         };
@@ -4945,8 +5041,9 @@ var Facet;
             var unitValue = this._getUnitValue();
             var zeroValue = this._getZeroValue();
             var simpleOperands = [];
-            for (var i = 0; i < operands.length; i++) {
-                var simpleOperand = operands[i].simplify();
+            for (var _i = 0; _i < operands.length; _i++) {
+                var operand = operands[_i];
+                var simpleOperand = operand.simplify();
                 if (simpleOperand instanceof Facet.LiteralExpression) {
                     if (unitValue !== null && simpleOperand.value === unitValue)
                         continue;
@@ -5097,23 +5194,14 @@ var Facet;
             return this.operand.toString() + this.actions.map(function (action) { return action.toString(); }).join('\n  ');
         };
         ActionsExpression.prototype.equals = function (other) {
-            if (!_super.prototype.equals.call(this, other))
-                return false;
-            var thisActions = this.actions;
-            var otherActions = other.actions;
-            if (thisActions.length !== otherActions.length)
-                return false;
-            for (var i = 0; i < thisActions.length; i++) {
-                if (!thisActions[i].equals(otherActions[i]))
-                    return false;
-            }
-            return true;
+            return _super.prototype.equals.call(this, other) && higherArraysEqual(this.actions, other.actions);
         };
         ActionsExpression.prototype.expressionCount = function () {
             var expressionCount = _super.prototype.expressionCount.call(this);
             var actions = this.actions;
-            for (var i = 0; i < actions.length; i++) {
-                expressionCount += actions[i].expressionCount();
+            for (var _i = 0; _i < actions.length; _i++) {
+                var action = actions[_i];
+                expressionCount += action.expressionCount();
             }
             return expressionCount;
         };
@@ -5126,8 +5214,8 @@ var Facet;
                     return ex.resolve(d).simplify().getFn()(null, def);
                 }
                 var dataset = operand.getFn()(null, def);
-                for (var i = 0; i < actions.length; i++) {
-                    var action = actions[i];
+                for (var _i = 0; _i < actions.length; _i++) {
+                    var action = actions[_i];
                     var actionExpression = action.expression;
                     if (action instanceof Facet.FilterAction) {
                         dataset = dataset.filter(action.expression.getFn());
@@ -5214,8 +5302,8 @@ var Facet;
         ActionsExpression.prototype._specialEvery = function (iter, thisArg, indexer, depth, nestDiff) {
             var actions = this.actions;
             var every = true;
-            for (var i = 0; i < actions.length; i++) {
-                var action = actions[i];
+            for (var _i = 0; _i < actions.length; _i++) {
+                var action = actions[_i];
                 if (every) {
                     every = action._everyHelper(iter, thisArg, indexer, depth + 1, nestDiff + 1);
                 }
@@ -5255,8 +5343,8 @@ var Facet;
             indexer.index++;
             typeContext = this.operand._fillRefSubstitutions(typeContext, indexer, alterations);
             var actions = this.actions;
-            for (var i = 0; i < actions.length; i++) {
-                var action = actions[i];
+            for (var _i = 0; _i < actions.length; _i++) {
+                var action = actions[_i];
                 if (action instanceof Facet.DefAction || action instanceof Facet.ApplyAction) {
                     typeContext.datasetType[action.name] = action.expression._fillRefSubstitutions(typeContext, indexer, alterations);
                 }
@@ -5339,8 +5427,9 @@ var Facet;
         AddExpression.prototype._getFnHelper = function (operandFns) {
             return function (d) {
                 var res = 0;
-                for (var i = 0; i < operandFns.length; i++) {
-                    res += operandFns[i](d) || 0;
+                for (var _i = 0; _i < operandFns.length; _i++) {
+                    var operandFn = operandFns[_i];
+                    res += operandFn(d) || 0;
                 }
                 return res;
             };
@@ -5378,7 +5467,7 @@ var Facet;
         average: 'AVG(',
         min: 'MIN(',
         max: 'MAX(',
-        uniqueCount: 'COUNT(DISTINCT '
+        countDistinct: 'COUNT(DISTINCT '
     };
     var AggregateExpression = (function (_super) {
         __extends(AggregateExpression, _super);
@@ -5395,7 +5484,7 @@ var Facet;
             }
             else {
                 if (!parameters.attribute)
-                    throw new Error("" + fn + " aggregate must have an 'attribute'");
+                    throw new Error(fn + " aggregate must have an 'attribute'");
                 this.attribute = parameters.attribute;
                 var attrType = this.attribute.type;
                 if (fn === 'group') {
@@ -5453,7 +5542,11 @@ var Facet;
             return this.operand.toString() + '.' + this.fn + '(' + (this.attribute ? this.attribute.toString() : '') + ')';
         };
         AggregateExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.fn === other.fn && Boolean(this.attribute) === Boolean(other.attribute) && (!this.attribute || this.attribute.equals(other.attribute)) && this.value === other.value;
+            return _super.prototype.equals.call(this, other) &&
+                this.fn === other.fn &&
+                Boolean(this.attribute) === Boolean(other.attribute) &&
+                (!this.attribute || this.attribute.equals(other.attribute)) &&
+                this.value === other.value;
         };
         AggregateExpression.prototype._getFnHelper = function (operandFn) {
             var fn = this.fn;
@@ -5574,8 +5667,8 @@ var Facet;
                 var attributeOperands = attribute.operands;
                 var literalSubExpression;
                 var restOfOperands = [];
-                for (var i = 0; i < attributeOperands.length; i++) {
-                    var attributeOperand = attributeOperands[i];
+                for (var _i = 0; _i < attributeOperands.length; _i++) {
+                    var attributeOperand = attributeOperands[_i];
                     if (!literalSubExpression && attributeOperand.isOp('literal')) {
                         literalSubExpression = attributeOperand;
                     }
@@ -5659,8 +5752,9 @@ var Facet;
         AndExpression.prototype._getFnHelper = function (operandFns) {
             return function (d) {
                 var res = true;
-                for (var i = 0; i < operandFns.length; i++) {
-                    res = res && operandFns[i](d);
+                for (var _i = 0; _i < operandFns.length; _i++) {
+                    var operandFn = operandFns[_i];
+                    res = res && operandFn(d);
                 }
                 return res;
             };
@@ -5682,20 +5776,21 @@ var Facet;
                 return this;
             var simpleOperands = this._getSimpleOperands();
             var groupedOperands = {};
-            for (var j = 0; j < simpleOperands.length; j++) {
-                var thisOperand = simpleOperands[j];
-                var referenceGroup = thisOperand.getFreeReferences().toString();
+            for (var _i = 0; _i < simpleOperands.length; _i++) {
+                var simpleOperand = simpleOperands[_i];
+                var referenceGroup = simpleOperand.getFreeReferences().toString();
                 if (hasOwnProperty(groupedOperands, referenceGroup)) {
-                    groupedOperands[referenceGroup].push(thisOperand);
+                    groupedOperands[referenceGroup].push(simpleOperand);
                 }
                 else {
-                    groupedOperands[referenceGroup] = [thisOperand];
+                    groupedOperands[referenceGroup] = [simpleOperand];
                 }
             }
             var sortedReferenceGroups = Object.keys(groupedOperands).sort();
             var finalOperands = [];
-            for (var k = 0; k < sortedReferenceGroups.length; k++) {
-                var mergedExpressions = multiMerge(groupedOperands[sortedReferenceGroups[k]], function (a, b) {
+            for (var _a = 0; _a < sortedReferenceGroups.length; _a++) {
+                var sortedReferenceGroup = sortedReferenceGroups[_a];
+                var mergedExpressions = multiMerge(groupedOperands[sortedReferenceGroup], function (a, b) {
                     return a ? a.mergeAnd(b) : null;
                 });
                 if (mergedExpressions.length === 1) {
@@ -5716,8 +5811,8 @@ var Facet;
             var includedExpressions = [];
             var excludedExpressions = [];
             var operands = this.operands;
-            for (var i = 0; i < operands.length; i++) {
-                var operand = operands[i];
+            for (var _i = 0; _i < operands.length; _i++) {
+                var operand = operands[_i];
                 var sep = operand.separateViaAnd(refName);
                 if (sep === null)
                     return null;
@@ -5819,10 +5914,12 @@ var Facet;
             return js;
         };
         SubstrExpression.prototype.toString = function () {
-            return "" + this.operand.toString() + ".substr(" + this.position + "," + this.length + ")";
+            return this.operand.toString() + ".substr(" + this.position + "," + this.length + ")";
         };
         SubstrExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.position === other.position && this.length === other.length;
+            return _super.prototype.equals.call(this, other) &&
+                this.position === other.position &&
+                this.length === other.length;
         };
         SubstrExpression.prototype._getFnHelper = function (operandFn) {
             var position = this.position;
@@ -5860,7 +5957,7 @@ var Facet;
             return new GreaterThanExpression(Facet.BinaryExpression.jsToValue(parameters));
         };
         GreaterThanExpression.prototype.toString = function () {
-            return "" + this.lhs.toString() + " > " + this.rhs.toString();
+            return this.lhs.toString() + " > " + this.rhs.toString();
         };
         GreaterThanExpression.prototype._specialSimplify = function (simpleLhs, simpleRhs) {
             return (new Facet.LessThanExpression({
@@ -5898,7 +5995,7 @@ var Facet;
             return new GreaterThanOrEqualExpression(Facet.BinaryExpression.jsToValue(parameters));
         };
         GreaterThanOrEqualExpression.prototype.toString = function () {
-            return "" + this.lhs.toString() + " = " + this.rhs.toString();
+            return this.lhs.toString() + " = " + this.rhs.toString();
         };
         GreaterThanOrEqualExpression.prototype._specialSimplify = function (simpleLhs, simpleRhs) {
             return (new Facet.LessThanOrEqualExpression({
@@ -5945,7 +6042,9 @@ var Facet;
             this._ensureOp("in");
             var lhs = this.lhs;
             var rhs = this.rhs;
-            if (!(rhs.canHaveType('SET') || (lhs.canHaveType('NUMBER') && rhs.canHaveType('NUMBER_RANGE')) || (lhs.canHaveType('TIME') && rhs.canHaveType('TIME_RANGE')))) {
+            if (!(rhs.canHaveType('SET')
+                || (lhs.canHaveType('NUMBER') && rhs.canHaveType('NUMBER_RANGE'))
+                || (lhs.canHaveType('TIME') && rhs.canHaveType('TIME_RANGE')))) {
                 throw new TypeError("in expression has a bad type combination " + (lhs.type || '?') + " in " + (rhs.type || '?'));
             }
             this.type = 'BOOLEAN';
@@ -5954,12 +6053,13 @@ var Facet;
             return new InExpression(Facet.BinaryExpression.jsToValue(parameters));
         };
         InExpression.prototype.toString = function () {
-            return "" + this.lhs.toString() + " in " + this.rhs.toString();
+            return this.lhs.toString() + " in " + this.rhs.toString();
         };
         InExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
             var lhsType = this.lhs.type;
             var rhsType = this.rhs.type;
-            if ((lhsType === 'NUMBER' && rhsType === 'SET/NUMBER_RANGE') || (lhsType === 'TIME' && rhsType === 'SET/TIME_RANGE')) {
+            if ((lhsType === 'NUMBER' && rhsType === 'SET/NUMBER_RANGE') ||
+                (lhsType === 'TIME' && rhsType === 'SET/TIME_RANGE')) {
                 return function (d) { return (rhsFn(d)).containsWithin(lhsFn(d)); };
             }
             else {
@@ -5969,11 +6069,12 @@ var Facet;
         InExpression.prototype._getJSExpressionHelper = function (lhsFnJS, rhsFnJS) {
             var lhsType = this.lhs.type;
             var rhsType = this.rhs.type;
-            if ((lhsType === 'NUMBER' && rhsType === 'SET/NUMBER_RANGE') || (lhsType === 'TIME' && rhsType === 'SET/TIME_RANGE')) {
-                return "" + rhsFnJS + ".containsWithin(" + lhsFnJS + ")";
+            if ((lhsType === 'NUMBER' && rhsType === 'SET/NUMBER_RANGE') ||
+                (lhsType === 'TIME' && rhsType === 'SET/TIME_RANGE')) {
+                return rhsFnJS + ".containsWithin(" + lhsFnJS + ")";
             }
             else {
-                return "" + rhsFnJS + ".contains(" + lhsFnJS + ")";
+                return rhsFnJS + ".contains(" + lhsFnJS + ")";
             }
         };
         InExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
@@ -5993,7 +6094,7 @@ var Facet;
                     }
                     throw new Error('not implemented yet');
                 case 'SET/STRING':
-                    return "" + lhsSQL + " IN " + rhsSQL;
+                    return lhsSQL + " IN " + rhsSQL;
                 default:
                     throw new Error('not implemented yet');
             }
@@ -6033,7 +6134,10 @@ var Facet;
             return null;
         };
         InExpression.prototype._specialSimplify = function (simpleLhs, simpleRhs) {
-            if (simpleLhs instanceof Facet.RefExpression && simpleRhs instanceof Facet.LiteralExpression && simpleRhs.type.indexOf('SET/') === 0 && simpleRhs.value.empty())
+            if (simpleLhs instanceof Facet.RefExpression &&
+                simpleRhs instanceof Facet.LiteralExpression &&
+                simpleRhs.type.indexOf('SET/') === 0 &&
+                simpleRhs.value.empty())
                 return Facet.Expression.FALSE;
             return null;
         };
@@ -6060,7 +6164,7 @@ var Facet;
             return new ContainsExpression(Facet.BinaryExpression.jsToValue(parameters));
         };
         ContainsExpression.prototype.toString = function () {
-            return "" + this.lhs.toString() + " contains " + this.rhs.toString();
+            return this.lhs.toString() + " contains " + this.rhs.toString();
         };
         ContainsExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
             return function (d) { return String(lhsFn(d)).indexOf(lhsFn(d)) > -1; };
@@ -6071,7 +6175,7 @@ var Facet;
         ContainsExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
             var rhs = this.rhs;
             if (rhs instanceof Facet.LiteralExpression) {
-                return "" + lhsSQL + " LIKE \"%" + rhs.value + "%\"";
+                return lhsSQL + " LIKE \"%" + rhs.value + "%\"";
             }
             else {
                 throw new Error("can not express " + rhs.toString() + " in SQL");
@@ -6096,7 +6200,7 @@ var Facet;
             return new IsExpression(Facet.BinaryExpression.jsToValue(parameters));
         };
         IsExpression.prototype.toString = function () {
-            return "" + this.lhs.toString() + " = " + this.rhs.toString();
+            return this.lhs.toString() + " = " + this.rhs.toString();
         };
         IsExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
             return function (d) { return lhsFn(d) === rhsFn(d); };
@@ -6120,7 +6224,9 @@ var Facet;
                     return this;
                 if (!(this.lhs instanceof Facet.RefExpression && ex.lhs instanceof Facet.RefExpression))
                     return null;
-                if (this.rhs.value.valueOf && ex.rhs.value.valueOf && ex.rhs.value.valueOf() === this.rhs.value.valueOf())
+                if (this.rhs.value.valueOf &&
+                    ex.rhs.value.valueOf &&
+                    ex.rhs.value.valueOf() === this.rhs.value.valueOf())
                     return this;
                 if (this.rhs.value === ex.rhs.value)
                     return this;
@@ -6148,7 +6254,9 @@ var Facet;
                     return null;
                 var thisValue = this.rhs.value;
                 var expValue = (ex.rhs).value;
-                if (thisValue.valueOf && expValue.valueOf && expValue.valueOf() === thisValue.valueOf())
+                if (thisValue.valueOf &&
+                    expValue.valueOf &&
+                    expValue.valueOf() === thisValue.valueOf())
                     return this;
                 if (thisValue === expValue)
                     return this;
@@ -6177,7 +6285,8 @@ var Facet;
                 var start = value.start;
                 var end = value.end;
                 if (duration.isSimple()) {
-                    if (duration.floor(start, simpleLhs.timezone).valueOf() === start.valueOf() && duration.move(start, simpleLhs.timezone, 1).valueOf() === end.valueOf()) {
+                    if (duration.floor(start, simpleLhs.timezone).valueOf() === start.valueOf() &&
+                        duration.move(start, simpleLhs.timezone, 1).valueOf() === end.valueOf()) {
                         return new Facet.InExpression({
                             op: 'in',
                             lhs: simpleLhs.operand,
@@ -6237,13 +6346,14 @@ var Facet;
             };
         };
         LabelExpression.prototype._getJSExpressionHelper = function (operandFnJS) {
-            throw "" + operandFnJS + ".label(" + this.name + ")";
+            throw operandFnJS + ".label(" + this.name + ")";
         };
         LabelExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
-            return "" + operandSQL + " AS \"" + this.name + "\"";
+            return operandSQL + " AS \"" + this.name + "\"";
         };
         LabelExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.name === other.name;
+            return _super.prototype.equals.call(this, other) &&
+                this.name === other.name;
         };
         LabelExpression.prototype._specialSimplify = function (simpleOperand) {
             if (simpleOperand instanceof Facet.AggregateExpression && simpleOperand.fn === 'group') {
@@ -6262,7 +6372,9 @@ var Facet;
             if (simpleOperand instanceof Facet.UnionExpression) {
                 var unionLhs = simpleOperand.lhs;
                 var unionRhs = simpleOperand.rhs;
-                if (unionLhs instanceof Facet.AggregateExpression && unionRhs instanceof Facet.AggregateExpression && (unionLhs.hasRemote() || unionRhs.hasRemote())) {
+                if (unionLhs instanceof Facet.AggregateExpression &&
+                    unionRhs instanceof Facet.AggregateExpression &&
+                    (unionLhs.hasRemote() || unionRhs.hasRemote())) {
                     return new Facet.JoinExpression({
                         op: 'join',
                         lhs: new LabelExpression({
@@ -6315,7 +6427,7 @@ var Facet;
             return new LessThanExpression(Facet.BinaryExpression.jsToValue(parameters));
         };
         LessThanExpression.prototype.toString = function () {
-            return "" + this.lhs.toString() + " < " + this.rhs.toString();
+            return this.lhs.toString() + " < " + this.rhs.toString();
         };
         LessThanExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
             return function (d) { return lhsFn(d) < rhsFn(d); };
@@ -6363,7 +6475,7 @@ var Facet;
             return new LessThanOrEqualExpression(Facet.BinaryExpression.jsToValue(parameters));
         };
         LessThanOrEqualExpression.prototype.toString = function () {
-            return "" + this.lhs.toString() + " <= " + this.rhs.toString();
+            return this.lhs.toString() + " <= " + this.rhs.toString();
         };
         LessThanOrEqualExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
             return function (d) { return lhsFn(d) <= rhsFn(d); };
@@ -6600,7 +6712,8 @@ var Facet;
             return this.operand.toString() + '.match(/' + this.regexp + '/)';
         };
         MatchExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.regexp === other.regexp;
+            return _super.prototype.equals.call(this, other) &&
+                this.regexp === other.regexp;
         };
         MatchExpression.prototype._getFnHelper = function (operandFn) {
             var re = new RegExp(this.regexp);
@@ -6610,7 +6723,7 @@ var Facet;
             return "/" + this.regexp + "/.test(" + operandFnJS + ")";
         };
         MatchExpression.prototype._getSQLHelper = function (operandSQL, dialect, minimal) {
-            return "" + operandSQL + " REGEXP '" + this.regexp + "'";
+            return operandSQL + " REGEXP '" + this.regexp + "'";
         };
         return MatchExpression;
     })(Facet.UnaryExpression);
@@ -6636,8 +6749,9 @@ var Facet;
         MultiplyExpression.prototype._getFnHelper = function (operandFns) {
             return function (d) {
                 var res = 1;
-                for (var i = 0; i < operandFns.length; i++) {
-                    res *= operandFns[i](d) || 0;
+                for (var _i = 0; _i < operandFns.length; _i++) {
+                    var operandFn = operandFns[_i];
+                    res *= operandFn(d) || 0;
                 }
                 return res;
             };
@@ -6748,21 +6862,34 @@ var Facet;
         __extends(NumberBucketExpression, _super);
         function NumberBucketExpression(parameters) {
             _super.call(this, parameters, dummyObject);
-            this.size = parameters.size;
-            this.offset = parameters.offset || 0;
+            var size = parameters.size;
+            this.size = size;
+            var offset = parameters.offset;
+            this.offset = offset;
+            var lowerLimit = parameters.lowerLimit;
+            this.lowerLimit = lowerLimit;
+            var upperLimit = parameters.upperLimit;
+            this.upperLimit = upperLimit;
+            if (lowerLimit !== null && upperLimit !== null && upperLimit - lowerLimit < size) {
+                throw new Error('lowerLimit and upperLimit must be at least size apart');
+            }
             this._ensureOp("numberBucket");
             this.type = "NUMBER_RANGE";
         }
         NumberBucketExpression.fromJS = function (parameters) {
             var value = Facet.UnaryExpression.jsToValue(parameters);
             value.size = parameters.size;
-            value.offset = parameters.offset;
+            value.offset = hasOwnProperty(parameters, 'offset') ? parameters.offset : 0;
+            value.lowerLimit = hasOwnProperty(parameters, 'lowerLimit') ? parameters.lowerLimit : null;
+            value.upperLimit = hasOwnProperty(parameters, 'upperLimit') ? parameters.upperLimit : null;
             return new NumberBucketExpression(value);
         };
         NumberBucketExpression.prototype.valueOf = function () {
             var value = _super.prototype.valueOf.call(this);
             value.size = this.size;
             value.offset = this.offset;
+            value.lowerLimit = this.lowerLimit;
+            value.upperLimit = this.upperLimit;
             return value;
         };
         NumberBucketExpression.prototype.toJS = function () {
@@ -6770,17 +6897,27 @@ var Facet;
             js.size = this.size;
             if (this.offset)
                 js.offset = this.offset;
+            if (this.lowerLimit !== null)
+                js.lowerLimit = this.lowerLimit;
+            if (this.upperLimit !== null)
+                js.upperLimit = this.upperLimit;
             return js;
         };
         NumberBucketExpression.prototype.toString = function () {
             return this.operand.toString() + '.numberBucket(' + this.size + (this.offset ? (', ' + this.offset) : '') + ')';
         };
         NumberBucketExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.size === other.size && this.offset === other.offset;
+            return _super.prototype.equals.call(this, other) &&
+                this.size === other.size &&
+                this.offset === other.offset &&
+                this.lowerLimit === other.lowerLimit &&
+                this.upperLimit === other.upperLimit;
         };
         NumberBucketExpression.prototype._getFnHelper = function (operandFn) {
             var size = this.size;
             var offset = this.offset;
+            var lowerLimit = this.lowerLimit;
+            var upperLimit = this.upperLimit;
             return function (d) {
                 var num = operandFn(d);
                 if (num === null)
@@ -6818,8 +6955,9 @@ var Facet;
         OrExpression.prototype._getFnHelper = function (operandFns) {
             return function (d) {
                 var res = false;
-                for (var i = 0; i < operandFns.length; i++) {
-                    res = res || operandFns[i](d);
+                for (var _i = 0; _i < operandFns.length; _i++) {
+                    var operandFn = operandFns[_i];
+                    res = res || operandFn(d);
                 }
                 return res;
             };
@@ -6841,20 +6979,21 @@ var Facet;
                 return this;
             var simplifiedOperands = this._getSimpleOperands();
             var groupedOperands = {};
-            for (var j = 0; j < simplifiedOperands.length; j++) {
-                var thisOperand = simplifiedOperands[j];
-                var referenceGroup = thisOperand.getFreeReferences().toString();
+            for (var _i = 0; _i < simplifiedOperands.length; _i++) {
+                var simplifiedOperand = simplifiedOperands[_i];
+                var referenceGroup = simplifiedOperand.getFreeReferences().toString();
                 if (groupedOperands[referenceGroup]) {
-                    groupedOperands[referenceGroup].push(thisOperand);
+                    groupedOperands[referenceGroup].push(simplifiedOperand);
                 }
                 else {
-                    groupedOperands[referenceGroup] = [thisOperand];
+                    groupedOperands[referenceGroup] = [simplifiedOperand];
                 }
             }
             var sortedReferenceGroups = Object.keys(groupedOperands).sort();
             var finalOperands = [];
-            for (var k = 0; k < sortedReferenceGroups.length; k++) {
-                var mergedExpressions = multiMerge(groupedOperands[sortedReferenceGroups[k]], function (a, b) {
+            for (var _a = 0; _a < sortedReferenceGroups.length; _a++) {
+                var sortedReferenceGroup = sortedReferenceGroups[_a];
+                var mergedExpressions = multiMerge(groupedOperands[sortedReferenceGroup], function (a, b) {
                     return a ? a.mergeOr(b) : null;
                 });
                 if (mergedExpressions.length === 1) {
@@ -6912,7 +7051,7 @@ var Facet;
 })(Facet || (Facet = {}));
 var Facet;
 (function (Facet) {
-    Facet.possibleTypes = {
+    Facet.POSSIBLE_TYPES = {
         'NULL': 1,
         'BOOLEAN': 1,
         'NUMBER': 1,
@@ -6952,7 +7091,7 @@ var Facet;
             this.nest = nest;
             var myType = parameters.type;
             if (myType) {
-                if (!hasOwnProperty(Facet.possibleTypes, myType)) {
+                if (!hasOwnProperty(Facet.POSSIBLE_TYPES, myType)) {
                     throw new TypeError("unsupported type '" + myType + "'");
                 }
                 this.type = myType;
@@ -7078,7 +7217,9 @@ var Facet;
             return '`' + name + '`';
         };
         RefExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.name === other.name && this.nest === other.nest;
+            return _super.prototype.equals.call(this, other) &&
+                this.name === other.name &&
+                this.nest === other.nest;
         };
         RefExpression.prototype.isRemote = function () {
             return Boolean(this.remote && this.remote.length);
@@ -7183,10 +7324,12 @@ var Facet;
             return js;
         };
         TimeBucketExpression.prototype.toString = function () {
-            return "" + this.operand.toString() + ".timeBucket(" + this.duration.toString() + ", " + this.timezone.toString() + ")";
+            return this.operand.toString() + ".timeBucket(" + this.duration.toString() + ", " + this.timezone.toString() + ")";
         };
         TimeBucketExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.duration.equals(other.duration) && this.timezone.equals(other.timezone);
+            return _super.prototype.equals.call(this, other) &&
+                this.duration.equals(other.duration) &&
+                this.timezone.equals(other.timezone);
         };
         TimeBucketExpression.prototype._getFnHelper = function (operandFn) {
             var duration = this.duration;
@@ -7246,10 +7389,12 @@ var Facet;
             return js;
         };
         TimeOffsetExpression.prototype.toString = function () {
-            return "" + this.operand.toString() + ".timeOffset(" + this.duration.toString() + ", " + this.timezone.toString() + ")";
+            return this.operand.toString() + ".timeOffset(" + this.duration.toString() + ", " + this.timezone.toString() + ")";
         };
         TimeOffsetExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.duration.equals(other.duration) && this.timezone.equals(other.timezone);
+            return _super.prototype.equals.call(this, other) &&
+                this.duration.equals(other.duration) &&
+                this.timezone.equals(other.timezone);
         };
         TimeOffsetExpression.prototype._getFnHelper = function (operandFn) {
             var duration = this.duration;
@@ -7306,10 +7451,12 @@ var Facet;
             return js;
         };
         TimePartExpression.prototype.toString = function () {
-            return "" + this.operand.toString() + ".timePart(" + this.part.toString() + ", " + this.timezone.toString() + ")";
+            return this.operand.toString() + ".timePart(" + this.part.toString() + ", " + this.timezone.toString() + ")";
         };
         TimePartExpression.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.part === other.part && this.timezone.equals(other.timezone);
+            return _super.prototype.equals.call(this, other) &&
+                this.part === other.part &&
+                this.timezone.equals(other.timezone);
         };
         TimePartExpression.prototype._getFnHelper = function (operandFn) {
             var part = this.part;
@@ -7335,8 +7482,9 @@ var Facet;
             var ranges = [];
             var iter = bigTimeMover.floor(start, timezone);
             while (iter <= end) {
-                for (var i = 0; i < values.length; i++) {
-                    var subIter = smallTimeMover.move(iter, timezone, values[i]);
+                for (var _i = 0; _i < values.length; _i++) {
+                    var value = values[_i];
+                    var subIter = smallTimeMover.move(iter, timezone, value);
                     ranges.push(new Facet.TimeRange({
                         start: subIter,
                         end: smallTimeMover.move(subIter, timezone, 1)
@@ -7392,7 +7540,7 @@ var Facet;
             return function (d) { return lhsFn(d).union(rhsFn(d)); };
         };
         UnionExpression.prototype._getJSExpressionHelper = function (lhsFnJS, rhsFnJS) {
-            return "" + lhsFnJS + ".union(" + rhsFnJS + ")";
+            return lhsFnJS + ".union(" + rhsFnJS + ")";
         };
         UnionExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
             throw new Error('not possible');
@@ -7439,13 +7587,13 @@ var Facet;
             return new JoinExpression(Facet.BinaryExpression.jsToValue(parameters));
         };
         JoinExpression.prototype.toString = function () {
-            return "" + this.lhs.toString() + ".join(" + this.rhs.toString() + ")";
+            return this.lhs.toString() + ".join(" + this.rhs.toString() + ")";
         };
         JoinExpression.prototype._getFnHelper = function (lhsFn, rhsFn) {
             return function (d) { return lhsFn(d).join(rhsFn(d)); };
         };
         JoinExpression.prototype._getJSExpressionHelper = function (lhsFnJS, rhsFnJS) {
-            return "" + lhsFnJS + ".join(" + rhsFnJS + ")";
+            return lhsFnJS + ".join(" + rhsFnJS + ")";
         };
         JoinExpression.prototype._getSQLHelper = function (lhsSQL, rhsSQL, dialect, minimal) {
             throw new Error('not possible');
@@ -7488,6 +7636,8 @@ var Facet;
     Facet.JoinExpression = JoinExpression;
     Facet.Expression.register(JoinExpression);
 })(Facet || (Facet = {}));
+/// <reference path="../datatypes/dataset.ts" />
+/// <reference path="../expressions/baseExpression.ts" />
 var Facet;
 (function (Facet) {
     var checkAction;
@@ -7501,8 +7651,8 @@ var Facet;
             }
         }
         Action.actionsDependOn = function (actions, name) {
-            for (var i = 0; i < actions.length; i++) {
-                var action = actions[i];
+            for (var _i = 0; _i < actions.length; _i++) {
+                var action = actions[_i];
                 var freeReferences = action.getFreeReferences();
                 if (freeReferences.indexOf(name) !== -1)
                     return true;
@@ -7531,36 +7681,6 @@ var Facet;
                 throw new Error("unsupported action '" + action + "'");
             }
             return ClassFn.fromJS(actionJS);
-        };
-        Action.getPrecedenceOrder = function (action) {
-            var orders = [Facet.FilterAction, Facet.SortAction, Facet.LimitAction, Facet.DefAction, Facet.ApplyAction];
-            for (var i = 0; i < orders.length; i++) {
-                if (action instanceof orders[i])
-                    return i;
-            }
-            return orders.length;
-        };
-        Action.compare = function (a, b) {
-            if (Action.getPrecedenceOrder(a) > Action.getPrecedenceOrder(b)) {
-                return 1;
-            }
-            else if (Action.getPrecedenceOrder(a) < Action.getPrecedenceOrder(b)) {
-                return -1;
-            }
-            var aReferences = a.expression.getFreeReferences();
-            var bReferences = b.expression.getFreeReferences();
-            if (aReferences.length < bReferences.length) {
-                return -1;
-            }
-            else if (aReferences.length > bReferences.length) {
-                return 1;
-            }
-            else {
-                if (bReferences.toString() !== aReferences.toString()) {
-                    return aReferences.toString().localeCompare(bReferences.toString());
-                }
-                return a.name.localeCompare(b.name);
-            }
         };
         Action.prototype._ensureAction = function (action) {
             if (!this.action) {
@@ -7593,7 +7713,8 @@ var Facet;
             return this.toJS();
         };
         Action.prototype.equals = function (other) {
-            return Action.isAction(other) && this.action === other.action;
+            return Action.isAction(other) &&
+                this.action === other.action;
         };
         Action.prototype.getSQL = function (dialect, minimal) {
             if (minimal === void 0) { minimal = false; }
@@ -7676,11 +7797,12 @@ var Facet;
             return ".apply(" + this.name + ", " + this.expression.toString() + ")";
         };
         ApplyAction.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.name === other.name;
+            return _super.prototype.equals.call(this, other) &&
+                this.name === other.name;
         };
         ApplyAction.prototype.getSQL = function (dialect, minimal) {
             if (minimal === void 0) { minimal = false; }
-            return "" + this.expression.getSQL(dialect, minimal) + " AS '" + this.name + "'";
+            return this.expression.getSQL(dialect, minimal) + " AS '" + this.name + "'";
         };
         return ApplyAction;
     })(Facet.Action);
@@ -7718,11 +7840,12 @@ var Facet;
             return ".def('" + this.name + "', " + this.expression.toString() + ')';
         };
         DefAction.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.name === other.name;
+            return _super.prototype.equals.call(this, other) &&
+                this.name === other.name;
         };
         DefAction.prototype.getSQL = function (dialect, minimal) {
             if (minimal === void 0) { minimal = false; }
-            return "" + this.expression.toString() + " AS \"" + this.name + "\"";
+            return this.expression.toString() + " AS \"" + this.name + "\"";
         };
         return DefAction;
     })(Facet.Action);
@@ -7790,7 +7913,8 @@ var Facet;
             return '.limit(' + this.limit + ')';
         };
         LimitAction.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.limit === other.limit;
+            return _super.prototype.equals.call(this, other) &&
+                this.limit === other.limit;
         };
         LimitAction.prototype.getSQL = function (dialect, minimal) {
             if (minimal === void 0) { minimal = false; }
@@ -7838,7 +7962,8 @@ var Facet;
             return '.sort(' + this.expression.toString() + ', ' + this.direction + ')';
         };
         SortAction.prototype.equals = function (other) {
-            return _super.prototype.equals.call(this, other) && this.direction === other.direction;
+            return _super.prototype.equals.call(this, other) &&
+                this.direction === other.direction;
         };
         SortAction.prototype.getSQL = function (dialect, minimal) {
             if (minimal === void 0) { minimal = false; }
@@ -7928,7 +8053,8 @@ var Facet;
             return function (request) {
                 preQuery(request.query);
                 var startTime = Date.now();
-                return requester(request).then(function (data) {
+                return requester(request)
+                    .then(function (data) {
                     onSuccess(data, Date.now() - startTime, request.query);
                     return data;
                 }, function (error) {
@@ -7992,7 +8118,9 @@ var Facet;
                 var queueItem = requestQueue.shift();
                 var deferred = queueItem.deferred;
                 outstandingRequests++;
-                requester(queueItem.request).then(deferred.resolve, deferred.reject).fin(requestFinished);
+                requester(queueItem.request)
+                    .then(deferred.resolve, deferred.reject)
+                    .fin(requestFinished);
             }
             return function (request) {
                 if (outstandingRequests < concurrentLimit) {
@@ -15711,12 +15839,12 @@ module.exports = function(facet) {
       'sort': 1,
       'limit': 1,
       'count': 1,
+      'countDistinct': 1,
       'sum': 1,
       'max': 1,
       'min': 1,
       'average': 1,
       'quantile': 1,
-      'uniqueCount': 1,
       'group': 1,
       'label': 1,
       'split': 1
@@ -15807,9 +15935,15 @@ module.exports = function(facet) {
         peg$c10 = function(name) { return name; },
         peg$c11 = function(table) { return table; },
         peg$c12 = function(filter) { return filter; },
-        peg$c13 = function(groupBy) { return groupBy; },
+        peg$c13 = function(groupBy, tail) {
+              if (tail.length) error('facetjs does not currently support multi-dimensional GROUP BYs');
+              return groupBy;
+            },
         peg$c14 = function(having) { return new FilterAction({ action: 'filter', expression: having }); },
-        peg$c15 = function(orderBy, direction) { return new SortAction({ action: 'sort', expression: orderBy, direction: direction || 'ascending' }); },
+        peg$c15 = function(orderBy, direction, tail) {
+              if (tail.length) error('facetjs does not currently support multi-column ORDER BYs');
+              return new SortAction({ action: 'sort', expression: orderBy, direction: direction || 'ascending' });
+            },
         peg$c16 = function(dir) { return dir; },
         peg$c17 = function(limit) { return new LimitAction({ action: 'limit', limit: limit }); },
         peg$c18 = function(head, tail) { return naryExpressionFactory('or', head, tail); },
@@ -15863,25 +15997,24 @@ module.exports = function(facet) {
         peg$c56 = { type: "literal", value: ")", description: "\")\"" },
         peg$c57 = function(ex) { return ex; },
         peg$c58 = function(subQuery) { return subQuery; },
-        peg$c59 = "()",
-        peg$c60 = { type: "literal", value: "()", description: "\"()\"" },
-        peg$c61 = function() { return dataRef.count(); },
-        peg$c62 = function(fn, ex) { return dataRef[fn](ex); },
-        peg$c63 = function(ex, value) { return dataRef.quantile(ex, value); },
+        peg$c59 = function() { return dataRef.count(); },
+        peg$c60 = function(ex) { return dataRef.countDistinct(ex); },
+        peg$c61 = function(fn, ex) { return dataRef[fn](ex); },
+        peg$c62 = function(ex, value) { return dataRef.quantile(ex, value); },
+        peg$c63 = function(operand, size, offset) { return operand.numberBucket(size, offset); },
         peg$c64 = function(operand, duration, timezone) { return operand.timeBucket(duration, timezone); },
-        peg$c65 = function(operand, size, offset) { return operand.numberBucket(size, offset); },
-        peg$c66 = function(operand, part, timezone) { return operand.timePart(part, timezone); },
-        peg$c67 = function(operand, position, length) { return operand.substr(position, length); },
-        peg$c68 = function(ref) { return $(ref); },
-        peg$c69 = function(name) { return reserved(name); },
-        peg$c70 = void 0,
-        peg$c71 = function(name) { return name },
-        peg$c72 = "`",
-        peg$c73 = { type: "literal", value: "`", description: "\"`\"" },
-        peg$c74 = /^[^`]/,
-        peg$c75 = { type: "class", value: "[^`]", description: "[^`]" },
-        peg$c76 = function(number) { return Expression.fromJS({ op: "literal", value: number }); },
-        peg$c77 = function(string) {
+        peg$c65 = function(operand, part, timezone) { return operand.timePart(part, timezone); },
+        peg$c66 = function(operand, position, length) { return operand.substr(position, length); },
+        peg$c67 = function(ref) { return $(ref); },
+        peg$c68 = function(name) { return reserved(name); },
+        peg$c69 = void 0,
+        peg$c70 = function(name) { return name },
+        peg$c71 = "`",
+        peg$c72 = { type: "literal", value: "`", description: "\"`\"" },
+        peg$c73 = /^[^`]/,
+        peg$c74 = { type: "class", value: "[^`]", description: "[^`]" },
+        peg$c75 = function(number) { return Expression.fromJS({ op: "literal", value: number }); },
+        peg$c76 = function(string) {
               if (dateRegExp.test(string)) {
                 var date = new Date(string);
                 if (!isNaN(date)) {
@@ -15893,133 +16026,142 @@ module.exports = function(facet) {
                 return Expression.fromJS({ op: "literal", value: string });
               }
             },
-        peg$c78 = function(v) { return Expression.fromJS({ op: "literal", value: v }); },
-        peg$c79 = { type: "other", description: "String" },
-        peg$c80 = "'",
-        peg$c81 = { type: "literal", value: "'", description: "\"'\"" },
-        peg$c82 = function(chars) { return chars; },
-        peg$c83 = function(chars) { error("Unmatched single quote"); },
-        peg$c84 = "\"",
-        peg$c85 = { type: "literal", value: "\"", description: "\"\\\"\"" },
-        peg$c86 = function(chars) { error("Unmatched double quote"); },
-        peg$c87 = "null",
-        peg$c88 = { type: "literal", value: "NULL", description: "\"NULL\"" },
-        peg$c89 = function() { return null; },
-        peg$c90 = "true",
-        peg$c91 = { type: "literal", value: "TRUE", description: "\"TRUE\"" },
-        peg$c92 = function() { return true; },
-        peg$c93 = "false",
-        peg$c94 = { type: "literal", value: "FALSE", description: "\"FALSE\"" },
-        peg$c95 = function() { return false; },
-        peg$c96 = "select",
-        peg$c97 = { type: "literal", value: "SELECT", description: "\"SELECT\"" },
-        peg$c98 = "from",
-        peg$c99 = { type: "literal", value: "FROM", description: "\"FROM\"" },
-        peg$c100 = "as",
-        peg$c101 = { type: "literal", value: "AS", description: "\"AS\"" },
-        peg$c102 = "on",
-        peg$c103 = { type: "literal", value: "ON", description: "\"ON\"" },
-        peg$c104 = "left",
-        peg$c105 = { type: "literal", value: "LEFT", description: "\"LEFT\"" },
-        peg$c106 = "inner",
-        peg$c107 = { type: "literal", value: "INNER", description: "\"INNER\"" },
-        peg$c108 = "join",
-        peg$c109 = { type: "literal", value: "JOIN", description: "\"JOIN\"" },
-        peg$c110 = "union",
-        peg$c111 = { type: "literal", value: "UNION", description: "\"UNION\"" },
-        peg$c112 = "where",
-        peg$c113 = { type: "literal", value: "WHERE", description: "\"WHERE\"" },
-        peg$c114 = "group",
-        peg$c115 = { type: "literal", value: "GROUP", description: "\"GROUP\"" },
-        peg$c116 = "by",
-        peg$c117 = { type: "literal", value: "BY", description: "\"BY\"" },
-        peg$c118 = "order",
-        peg$c119 = { type: "literal", value: "ORDER", description: "\"ORDER\"" },
-        peg$c120 = "having",
-        peg$c121 = { type: "literal", value: "HAVING", description: "\"HAVING\"" },
-        peg$c122 = "limit",
-        peg$c123 = { type: "literal", value: "LIMIT", description: "\"LIMIT\"" },
-        peg$c124 = "asc",
-        peg$c125 = { type: "literal", value: "ASC", description: "\"ASC\"" },
-        peg$c126 = function() { return 'ascending';  },
-        peg$c127 = "desc",
-        peg$c128 = { type: "literal", value: "DESC", description: "\"DESC\"" },
-        peg$c129 = function() { return 'descending'; },
-        peg$c130 = "between",
-        peg$c131 = { type: "literal", value: "BETWEEN", description: "\"BETWEEN\"" },
-        peg$c132 = { type: "literal", value: "IN", description: "\"IN\"" },
-        peg$c133 = "is",
-        peg$c134 = { type: "literal", value: "IS", description: "\"IS\"" },
-        peg$c135 = "like",
-        peg$c136 = { type: "literal", value: "LIKE", description: "\"LIKE\"" },
-        peg$c137 = "contains",
-        peg$c138 = { type: "literal", value: "CONTAINS", description: "\"CONTAINS\"" },
-        peg$c139 = "not",
-        peg$c140 = { type: "literal", value: "NOT", description: "\"NOT\"" },
-        peg$c141 = "and",
-        peg$c142 = { type: "literal", value: "AND", description: "\"AND\"" },
-        peg$c143 = "or",
-        peg$c144 = { type: "literal", value: "OR", description: "\"OR\"" },
-        peg$c145 = "count",
-        peg$c146 = { type: "literal", value: "COUNT", description: "\"COUNT\"" },
-        peg$c147 = function() { return 'count'; },
-        peg$c148 = "sum",
-        peg$c149 = { type: "literal", value: "SUM", description: "\"SUM\"" },
-        peg$c150 = function() { return 'sum'; },
-        peg$c151 = "avg",
-        peg$c152 = { type: "literal", value: "AVG", description: "\"AVG\"" },
-        peg$c153 = function() { return 'average'; },
-        peg$c154 = "min",
-        peg$c155 = { type: "literal", value: "MIN", description: "\"MIN\"" },
-        peg$c156 = function() { return 'min'; },
-        peg$c157 = "max",
-        peg$c158 = { type: "literal", value: "MAX", description: "\"MAX\"" },
-        peg$c159 = function() { return 'max'; },
-        peg$c160 = "quantile",
-        peg$c161 = { type: "literal", value: "QUANTILE", description: "\"QUANTILE\"" },
-        peg$c162 = function() { return 'quantile'; },
-        peg$c163 = "time_bucket",
-        peg$c164 = { type: "literal", value: "TIME_BUCKET", description: "\"TIME_BUCKET\"" },
-        peg$c165 = "number_bucket",
-        peg$c166 = { type: "literal", value: "NUMBER_BUCKET", description: "\"NUMBER_BUCKET\"" },
-        peg$c167 = "time_part",
-        peg$c168 = { type: "literal", value: "TIME_PART", description: "\"TIME_PART\"" },
-        peg$c169 = "substr",
-        peg$c170 = { type: "literal", value: "SUBSTR", description: "\"SUBSTR\"" },
-        peg$c171 = /^[A-Za-z_]/,
-        peg$c172 = { type: "class", value: "[A-Za-z_]", description: "[A-Za-z_]" },
-        peg$c173 = { type: "other", description: "Number" },
-        peg$c174 = function(n) { return parseFloat(n); },
-        peg$c175 = "-",
-        peg$c176 = { type: "literal", value: "-", description: "\"-\"" },
-        peg$c177 = /^[1-9]/,
-        peg$c178 = { type: "class", value: "[1-9]", description: "[1-9]" },
-        peg$c179 = ".",
-        peg$c180 = { type: "literal", value: ".", description: "\".\"" },
-        peg$c181 = "e",
-        peg$c182 = { type: "literal", value: "e", description: "\"e\"" },
-        peg$c183 = /^[0-9]/,
-        peg$c184 = { type: "class", value: "[0-9]", description: "[0-9]" },
-        peg$c185 = { type: "other", description: "Name" },
-        peg$c186 = /^[a-zA-Z_]/,
-        peg$c187 = { type: "class", value: "[a-zA-Z_]", description: "[a-zA-Z_]" },
-        peg$c188 = /^[a-z0-9A-Z_]/,
-        peg$c189 = { type: "class", value: "[a-z0-9A-Z_]", description: "[a-z0-9A-Z_]" },
-        peg$c190 = { type: "other", description: "NotSQuote" },
-        peg$c191 = /^[^']/,
-        peg$c192 = { type: "class", value: "[^']", description: "[^']" },
-        peg$c193 = { type: "other", description: "NotDQuote" },
-        peg$c194 = /^[^"]/,
-        peg$c195 = { type: "class", value: "[^\"]", description: "[^\"]" },
-        peg$c196 = { type: "other", description: "Whitespace" },
-        peg$c197 = /^[ \t\r\n]/,
-        peg$c198 = { type: "class", value: "[ \\t\\r\\n]", description: "[ \\t\\r\\n]" },
-        peg$c199 = { type: "other", description: "Mandatory Whitespace" },
-        peg$c200 = "--",
-        peg$c201 = { type: "literal", value: "--", description: "\"--\"" },
-        peg$c202 = { type: "any", description: "any character" },
-        peg$c203 = /^[\n\r]/,
-        peg$c204 = { type: "class", value: "[\\n\\r]", description: "[\\n\\r]" },
+        peg$c77 = function(v) { return Expression.fromJS({ op: "literal", value: v }); },
+        peg$c78 = { type: "other", description: "String" },
+        peg$c79 = "'",
+        peg$c80 = { type: "literal", value: "'", description: "\"'\"" },
+        peg$c81 = function(chars) { return chars; },
+        peg$c82 = function(chars) { error("Unmatched single quote"); },
+        peg$c83 = "\"",
+        peg$c84 = { type: "literal", value: "\"", description: "\"\\\"\"" },
+        peg$c85 = function(chars) { error("Unmatched double quote"); },
+        peg$c86 = "null",
+        peg$c87 = { type: "literal", value: "NULL", description: "\"NULL\"" },
+        peg$c88 = function() { return null; },
+        peg$c89 = "true",
+        peg$c90 = { type: "literal", value: "TRUE", description: "\"TRUE\"" },
+        peg$c91 = function() { return true; },
+        peg$c92 = "false",
+        peg$c93 = { type: "literal", value: "FALSE", description: "\"FALSE\"" },
+        peg$c94 = function() { return false; },
+        peg$c95 = "select",
+        peg$c96 = { type: "literal", value: "SELECT", description: "\"SELECT\"" },
+        peg$c97 = "from",
+        peg$c98 = { type: "literal", value: "FROM", description: "\"FROM\"" },
+        peg$c99 = "as",
+        peg$c100 = { type: "literal", value: "AS", description: "\"AS\"" },
+        peg$c101 = "on",
+        peg$c102 = { type: "literal", value: "ON", description: "\"ON\"" },
+        peg$c103 = "left",
+        peg$c104 = { type: "literal", value: "LEFT", description: "\"LEFT\"" },
+        peg$c105 = "inner",
+        peg$c106 = { type: "literal", value: "INNER", description: "\"INNER\"" },
+        peg$c107 = "join",
+        peg$c108 = { type: "literal", value: "JOIN", description: "\"JOIN\"" },
+        peg$c109 = "union",
+        peg$c110 = { type: "literal", value: "UNION", description: "\"UNION\"" },
+        peg$c111 = "where",
+        peg$c112 = { type: "literal", value: "WHERE", description: "\"WHERE\"" },
+        peg$c113 = "group",
+        peg$c114 = { type: "literal", value: "GROUP", description: "\"GROUP\"" },
+        peg$c115 = "by",
+        peg$c116 = { type: "literal", value: "BY", description: "\"BY\"" },
+        peg$c117 = "order",
+        peg$c118 = { type: "literal", value: "ORDER", description: "\"ORDER\"" },
+        peg$c119 = "having",
+        peg$c120 = { type: "literal", value: "HAVING", description: "\"HAVING\"" },
+        peg$c121 = "limit",
+        peg$c122 = { type: "literal", value: "LIMIT", description: "\"LIMIT\"" },
+        peg$c123 = "asc",
+        peg$c124 = { type: "literal", value: "ASC", description: "\"ASC\"" },
+        peg$c125 = function() { return 'ascending';  },
+        peg$c126 = "desc",
+        peg$c127 = { type: "literal", value: "DESC", description: "\"DESC\"" },
+        peg$c128 = function() { return 'descending'; },
+        peg$c129 = "between",
+        peg$c130 = { type: "literal", value: "BETWEEN", description: "\"BETWEEN\"" },
+        peg$c131 = { type: "literal", value: "IN", description: "\"IN\"" },
+        peg$c132 = "is",
+        peg$c133 = { type: "literal", value: "IS", description: "\"IS\"" },
+        peg$c134 = "like",
+        peg$c135 = { type: "literal", value: "LIKE", description: "\"LIKE\"" },
+        peg$c136 = "contains",
+        peg$c137 = { type: "literal", value: "CONTAINS", description: "\"CONTAINS\"" },
+        peg$c138 = "not",
+        peg$c139 = { type: "literal", value: "NOT", description: "\"NOT\"" },
+        peg$c140 = "and",
+        peg$c141 = { type: "literal", value: "AND", description: "\"AND\"" },
+        peg$c142 = "or",
+        peg$c143 = { type: "literal", value: "OR", description: "\"OR\"" },
+        peg$c144 = "distinct",
+        peg$c145 = { type: "literal", value: "DISTINCT", description: "\"DISTINCT\"" },
+        peg$c146 = "*",
+        peg$c147 = { type: "literal", value: "*", description: "\"*\"" },
+        peg$c148 = "count",
+        peg$c149 = { type: "literal", value: "COUNT", description: "\"COUNT\"" },
+        peg$c150 = function() { return 'count'; },
+        peg$c151 = "count_distinct",
+        peg$c152 = { type: "literal", value: "COUNT_DISTINCT", description: "\"COUNT_DISTINCT\"" },
+        peg$c153 = function() { return 'countDistinct'; },
+        peg$c154 = "sum",
+        peg$c155 = { type: "literal", value: "SUM", description: "\"SUM\"" },
+        peg$c156 = function() { return 'sum'; },
+        peg$c157 = "avg",
+        peg$c158 = { type: "literal", value: "AVG", description: "\"AVG\"" },
+        peg$c159 = function() { return 'average'; },
+        peg$c160 = "min",
+        peg$c161 = { type: "literal", value: "MIN", description: "\"MIN\"" },
+        peg$c162 = function() { return 'min'; },
+        peg$c163 = "max",
+        peg$c164 = { type: "literal", value: "MAX", description: "\"MAX\"" },
+        peg$c165 = function() { return 'max'; },
+        peg$c166 = "quantile",
+        peg$c167 = { type: "literal", value: "QUANTILE", description: "\"QUANTILE\"" },
+        peg$c168 = function() { return 'quantile'; },
+        peg$c169 = "time_bucket",
+        peg$c170 = { type: "literal", value: "TIME_BUCKET", description: "\"TIME_BUCKET\"" },
+        peg$c171 = "number_bucket",
+        peg$c172 = { type: "literal", value: "NUMBER_BUCKET", description: "\"NUMBER_BUCKET\"" },
+        peg$c173 = "time_part",
+        peg$c174 = { type: "literal", value: "TIME_PART", description: "\"TIME_PART\"" },
+        peg$c175 = "substr",
+        peg$c176 = { type: "literal", value: "SUBSTR", description: "\"SUBSTR\"" },
+        peg$c177 = "concat",
+        peg$c178 = { type: "literal", value: "CONCAT", description: "\"CONCAT\"" },
+        peg$c179 = /^[A-Za-z_]/,
+        peg$c180 = { type: "class", value: "[A-Za-z_]", description: "[A-Za-z_]" },
+        peg$c181 = { type: "other", description: "Number" },
+        peg$c182 = function(n) { return parseFloat(n); },
+        peg$c183 = "-",
+        peg$c184 = { type: "literal", value: "-", description: "\"-\"" },
+        peg$c185 = /^[1-9]/,
+        peg$c186 = { type: "class", value: "[1-9]", description: "[1-9]" },
+        peg$c187 = ".",
+        peg$c188 = { type: "literal", value: ".", description: "\".\"" },
+        peg$c189 = "e",
+        peg$c190 = { type: "literal", value: "e", description: "\"e\"" },
+        peg$c191 = /^[0-9]/,
+        peg$c192 = { type: "class", value: "[0-9]", description: "[0-9]" },
+        peg$c193 = { type: "other", description: "Name" },
+        peg$c194 = /^[a-zA-Z_]/,
+        peg$c195 = { type: "class", value: "[a-zA-Z_]", description: "[a-zA-Z_]" },
+        peg$c196 = /^[a-z0-9A-Z_]/,
+        peg$c197 = { type: "class", value: "[a-z0-9A-Z_]", description: "[a-z0-9A-Z_]" },
+        peg$c198 = { type: "other", description: "NotSQuote" },
+        peg$c199 = /^[^']/,
+        peg$c200 = { type: "class", value: "[^']", description: "[^']" },
+        peg$c201 = { type: "other", description: "NotDQuote" },
+        peg$c202 = /^[^"]/,
+        peg$c203 = { type: "class", value: "[^\"]", description: "[^\"]" },
+        peg$c204 = { type: "other", description: "Whitespace" },
+        peg$c205 = /^[ \t\r\n]/,
+        peg$c206 = { type: "class", value: "[ \\t\\r\\n]", description: "[ \\t\\r\\n]" },
+        peg$c207 = { type: "other", description: "Mandatory Whitespace" },
+        peg$c208 = "--",
+        peg$c209 = { type: "literal", value: "--", description: "\"--\"" },
+        peg$c210 = { type: "any", description: "any character" },
+        peg$c211 = /^[\n\r]/,
+        peg$c212 = { type: "class", value: "[\\n\\r]", description: "[\\n\\r]" },
 
         peg$currPos          = 0,
         peg$reportedPos      = 0,
@@ -16368,7 +16510,7 @@ module.exports = function(facet) {
       var s0, s1, s2, s3, s4, s5, s6, s7, s8;
 
       s0 = peg$currPos;
-      s1 = peg$parse__();
+      s1 = peg$parse_();
       if (s1 !== peg$FAILED) {
         s2 = peg$parseColumn();
         if (s2 !== peg$FAILED) {
@@ -16492,11 +16634,11 @@ module.exports = function(facet) {
       var s0, s1, s2, s3, s4;
 
       s0 = peg$currPos;
-      s1 = peg$parse__();
+      s1 = peg$parse_();
       if (s1 !== peg$FAILED) {
         s2 = peg$parseAsToken();
         if (s2 !== peg$FAILED) {
-          s3 = peg$parse__();
+          s3 = peg$parse_();
           if (s3 !== peg$FAILED) {
             s4 = peg$parseString();
             if (s4 === peg$FAILED) {
@@ -16530,11 +16672,11 @@ module.exports = function(facet) {
       var s0, s1, s2, s3, s4;
 
       s0 = peg$currPos;
-      s1 = peg$parse__();
+      s1 = peg$parse_();
       if (s1 !== peg$FAILED) {
         s2 = peg$parseFromToken();
         if (s2 !== peg$FAILED) {
-          s3 = peg$parse__();
+          s3 = peg$parse_();
           if (s3 !== peg$FAILED) {
             s4 = peg$parseRefExpression();
             if (s4 !== peg$FAILED) {
@@ -16565,11 +16707,11 @@ module.exports = function(facet) {
       var s0, s1, s2, s3, s4;
 
       s0 = peg$currPos;
-      s1 = peg$parse__();
+      s1 = peg$parse_();
       if (s1 !== peg$FAILED) {
         s2 = peg$parseWhereToken();
         if (s2 !== peg$FAILED) {
-          s3 = peg$parse__();
+          s3 = peg$parse_();
           if (s3 !== peg$FAILED) {
             s4 = peg$parseOrExpression();
             if (s4 !== peg$FAILED) {
@@ -16597,10 +16739,10 @@ module.exports = function(facet) {
     }
 
     function peg$parseGroupByClause() {
-      var s0, s1, s2, s3, s4, s5, s6;
+      var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12;
 
       s0 = peg$currPos;
-      s1 = peg$parse__();
+      s1 = peg$parse_();
       if (s1 !== peg$FAILED) {
         s2 = peg$parseGroupToken();
         if (s2 !== peg$FAILED) {
@@ -16608,13 +16750,88 @@ module.exports = function(facet) {
           if (s3 !== peg$FAILED) {
             s4 = peg$parseByToken();
             if (s4 !== peg$FAILED) {
-              s5 = peg$parse__();
+              s5 = peg$parse_();
               if (s5 !== peg$FAILED) {
                 s6 = peg$parseOrExpression();
                 if (s6 !== peg$FAILED) {
-                  peg$reportedPos = s0;
-                  s1 = peg$c13(s6);
-                  s0 = s1;
+                  s7 = [];
+                  s8 = peg$currPos;
+                  s9 = peg$parse_();
+                  if (s9 !== peg$FAILED) {
+                    if (input.charCodeAt(peg$currPos) === 44) {
+                      s10 = peg$c6;
+                      peg$currPos++;
+                    } else {
+                      s10 = peg$FAILED;
+                      if (peg$silentFails === 0) { peg$fail(peg$c7); }
+                    }
+                    if (s10 !== peg$FAILED) {
+                      s11 = peg$parse_();
+                      if (s11 !== peg$FAILED) {
+                        s12 = peg$parseOrExpression();
+                        if (s12 !== peg$FAILED) {
+                          s9 = [s9, s10, s11, s12];
+                          s8 = s9;
+                        } else {
+                          peg$currPos = s8;
+                          s8 = peg$c0;
+                        }
+                      } else {
+                        peg$currPos = s8;
+                        s8 = peg$c0;
+                      }
+                    } else {
+                      peg$currPos = s8;
+                      s8 = peg$c0;
+                    }
+                  } else {
+                    peg$currPos = s8;
+                    s8 = peg$c0;
+                  }
+                  while (s8 !== peg$FAILED) {
+                    s7.push(s8);
+                    s8 = peg$currPos;
+                    s9 = peg$parse_();
+                    if (s9 !== peg$FAILED) {
+                      if (input.charCodeAt(peg$currPos) === 44) {
+                        s10 = peg$c6;
+                        peg$currPos++;
+                      } else {
+                        s10 = peg$FAILED;
+                        if (peg$silentFails === 0) { peg$fail(peg$c7); }
+                      }
+                      if (s10 !== peg$FAILED) {
+                        s11 = peg$parse_();
+                        if (s11 !== peg$FAILED) {
+                          s12 = peg$parseOrExpression();
+                          if (s12 !== peg$FAILED) {
+                            s9 = [s9, s10, s11, s12];
+                            s8 = s9;
+                          } else {
+                            peg$currPos = s8;
+                            s8 = peg$c0;
+                          }
+                        } else {
+                          peg$currPos = s8;
+                          s8 = peg$c0;
+                        }
+                      } else {
+                        peg$currPos = s8;
+                        s8 = peg$c0;
+                      }
+                    } else {
+                      peg$currPos = s8;
+                      s8 = peg$c0;
+                    }
+                  }
+                  if (s7 !== peg$FAILED) {
+                    peg$reportedPos = s0;
+                    s1 = peg$c13(s6, s7);
+                    s0 = s1;
+                  } else {
+                    peg$currPos = s0;
+                    s0 = peg$c0;
+                  }
                 } else {
                   peg$currPos = s0;
                   s0 = peg$c0;
@@ -16647,11 +16864,11 @@ module.exports = function(facet) {
       var s0, s1, s2, s3, s4;
 
       s0 = peg$currPos;
-      s1 = peg$parse__();
+      s1 = peg$parse_();
       if (s1 !== peg$FAILED) {
         s2 = peg$parseHavingToken();
         if (s2 !== peg$FAILED) {
-          s3 = peg$parse__();
+          s3 = peg$parse_();
           if (s3 !== peg$FAILED) {
             s4 = peg$parseOrExpression();
             if (s4 !== peg$FAILED) {
@@ -16679,10 +16896,10 @@ module.exports = function(facet) {
     }
 
     function peg$parseOrderByClause() {
-      var s0, s1, s2, s3, s4, s5, s6, s7;
+      var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14;
 
       s0 = peg$currPos;
-      s1 = peg$parse__();
+      s1 = peg$parse_();
       if (s1 !== peg$FAILED) {
         s2 = peg$parseOrderToken();
         if (s2 !== peg$FAILED) {
@@ -16690,7 +16907,7 @@ module.exports = function(facet) {
           if (s3 !== peg$FAILED) {
             s4 = peg$parseByToken();
             if (s4 !== peg$FAILED) {
-              s5 = peg$parse__();
+              s5 = peg$parse_();
               if (s5 !== peg$FAILED) {
                 s6 = peg$parseOrExpression();
                 if (s6 !== peg$FAILED) {
@@ -16699,9 +16916,102 @@ module.exports = function(facet) {
                     s7 = peg$c2;
                   }
                   if (s7 !== peg$FAILED) {
-                    peg$reportedPos = s0;
-                    s1 = peg$c15(s6, s7);
-                    s0 = s1;
+                    s8 = [];
+                    s9 = peg$currPos;
+                    s10 = peg$parse_();
+                    if (s10 !== peg$FAILED) {
+                      if (input.charCodeAt(peg$currPos) === 44) {
+                        s11 = peg$c6;
+                        peg$currPos++;
+                      } else {
+                        s11 = peg$FAILED;
+                        if (peg$silentFails === 0) { peg$fail(peg$c7); }
+                      }
+                      if (s11 !== peg$FAILED) {
+                        s12 = peg$parse_();
+                        if (s12 !== peg$FAILED) {
+                          s13 = peg$parseOrExpression();
+                          if (s13 !== peg$FAILED) {
+                            s14 = peg$parseDirection();
+                            if (s14 === peg$FAILED) {
+                              s14 = peg$c2;
+                            }
+                            if (s14 !== peg$FAILED) {
+                              s10 = [s10, s11, s12, s13, s14];
+                              s9 = s10;
+                            } else {
+                              peg$currPos = s9;
+                              s9 = peg$c0;
+                            }
+                          } else {
+                            peg$currPos = s9;
+                            s9 = peg$c0;
+                          }
+                        } else {
+                          peg$currPos = s9;
+                          s9 = peg$c0;
+                        }
+                      } else {
+                        peg$currPos = s9;
+                        s9 = peg$c0;
+                      }
+                    } else {
+                      peg$currPos = s9;
+                      s9 = peg$c0;
+                    }
+                    while (s9 !== peg$FAILED) {
+                      s8.push(s9);
+                      s9 = peg$currPos;
+                      s10 = peg$parse_();
+                      if (s10 !== peg$FAILED) {
+                        if (input.charCodeAt(peg$currPos) === 44) {
+                          s11 = peg$c6;
+                          peg$currPos++;
+                        } else {
+                          s11 = peg$FAILED;
+                          if (peg$silentFails === 0) { peg$fail(peg$c7); }
+                        }
+                        if (s11 !== peg$FAILED) {
+                          s12 = peg$parse_();
+                          if (s12 !== peg$FAILED) {
+                            s13 = peg$parseOrExpression();
+                            if (s13 !== peg$FAILED) {
+                              s14 = peg$parseDirection();
+                              if (s14 === peg$FAILED) {
+                                s14 = peg$c2;
+                              }
+                              if (s14 !== peg$FAILED) {
+                                s10 = [s10, s11, s12, s13, s14];
+                                s9 = s10;
+                              } else {
+                                peg$currPos = s9;
+                                s9 = peg$c0;
+                              }
+                            } else {
+                              peg$currPos = s9;
+                              s9 = peg$c0;
+                            }
+                          } else {
+                            peg$currPos = s9;
+                            s9 = peg$c0;
+                          }
+                        } else {
+                          peg$currPos = s9;
+                          s9 = peg$c0;
+                        }
+                      } else {
+                        peg$currPos = s9;
+                        s9 = peg$c0;
+                      }
+                    }
+                    if (s8 !== peg$FAILED) {
+                      peg$reportedPos = s0;
+                      s1 = peg$c15(s6, s7, s8);
+                      s0 = s1;
+                    } else {
+                      peg$currPos = s0;
+                      s0 = peg$c0;
+                    }
                   } else {
                     peg$currPos = s0;
                     s0 = peg$c0;
@@ -16738,7 +17048,7 @@ module.exports = function(facet) {
       var s0, s1, s2;
 
       s0 = peg$currPos;
-      s1 = peg$parse__();
+      s1 = peg$parse_();
       if (s1 !== peg$FAILED) {
         s2 = peg$parseAscToken();
         if (s2 === peg$FAILED) {
@@ -16764,11 +17074,11 @@ module.exports = function(facet) {
       var s0, s1, s2, s3, s4;
 
       s0 = peg$currPos;
-      s1 = peg$parse__();
+      s1 = peg$parse_();
       if (s1 !== peg$FAILED) {
         s2 = peg$parseLimitToken();
         if (s2 !== peg$FAILED) {
-          s3 = peg$parse__();
+          s3 = peg$parse_();
           if (s3 !== peg$FAILED) {
             s4 = peg$parseNumber();
             if (s4 !== peg$FAILED) {
@@ -17563,17 +17873,53 @@ module.exports = function(facet) {
       s0 = peg$currPos;
       s1 = peg$parseCountToken();
       if (s1 !== peg$FAILED) {
-        if (input.substr(peg$currPos, 2) === peg$c59) {
-          s2 = peg$c59;
-          peg$currPos += 2;
+        if (input.charCodeAt(peg$currPos) === 40) {
+          s2 = peg$c53;
+          peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c60); }
+          if (peg$silentFails === 0) { peg$fail(peg$c54); }
         }
         if (s2 !== peg$FAILED) {
-          peg$reportedPos = s0;
-          s1 = peg$c61();
-          s0 = s1;
+          s3 = peg$parse_();
+          if (s3 !== peg$FAILED) {
+            s4 = peg$parseStarToken();
+            if (s4 === peg$FAILED) {
+              s4 = peg$parseOrExpression();
+            }
+            if (s4 === peg$FAILED) {
+              s4 = peg$c2;
+            }
+            if (s4 !== peg$FAILED) {
+              s5 = peg$parse_();
+              if (s5 !== peg$FAILED) {
+                if (input.charCodeAt(peg$currPos) === 41) {
+                  s6 = peg$c55;
+                  peg$currPos++;
+                } else {
+                  s6 = peg$FAILED;
+                  if (peg$silentFails === 0) { peg$fail(peg$c56); }
+                }
+                if (s6 !== peg$FAILED) {
+                  peg$reportedPos = s0;
+                  s1 = peg$c59();
+                  s0 = s1;
+                } else {
+                  peg$currPos = s0;
+                  s0 = peg$c0;
+                }
+              } else {
+                peg$currPos = s0;
+                s0 = peg$c0;
+              }
+            } else {
+              peg$currPos = s0;
+              s0 = peg$c0;
+            }
+          } else {
+            peg$currPos = s0;
+            s0 = peg$c0;
+          }
         } else {
           peg$currPos = s0;
           s0 = peg$c0;
@@ -17584,7 +17930,7 @@ module.exports = function(facet) {
       }
       if (s0 === peg$FAILED) {
         s0 = peg$currPos;
-        s1 = peg$parseAggregateFn();
+        s1 = peg$parseCountToken();
         if (s1 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 40) {
             s2 = peg$c53;
@@ -17596,21 +17942,33 @@ module.exports = function(facet) {
           if (s2 !== peg$FAILED) {
             s3 = peg$parse_();
             if (s3 !== peg$FAILED) {
-              s4 = peg$parseOrExpression();
+              s4 = peg$parseDistinctToken();
               if (s4 !== peg$FAILED) {
                 s5 = peg$parse_();
                 if (s5 !== peg$FAILED) {
-                  if (input.charCodeAt(peg$currPos) === 41) {
-                    s6 = peg$c55;
-                    peg$currPos++;
-                  } else {
-                    s6 = peg$FAILED;
-                    if (peg$silentFails === 0) { peg$fail(peg$c56); }
-                  }
+                  s6 = peg$parseOrExpression();
                   if (s6 !== peg$FAILED) {
-                    peg$reportedPos = s0;
-                    s1 = peg$c62(s1, s4);
-                    s0 = s1;
+                    s7 = peg$parse_();
+                    if (s7 !== peg$FAILED) {
+                      if (input.charCodeAt(peg$currPos) === 41) {
+                        s8 = peg$c55;
+                        peg$currPos++;
+                      } else {
+                        s8 = peg$FAILED;
+                        if (peg$silentFails === 0) { peg$fail(peg$c56); }
+                      }
+                      if (s8 !== peg$FAILED) {
+                        peg$reportedPos = s0;
+                        s1 = peg$c60(s6);
+                        s0 = s1;
+                      } else {
+                        peg$currPos = s0;
+                        s0 = peg$c0;
+                      }
+                    } else {
+                      peg$currPos = s0;
+                      s0 = peg$c0;
+                    }
                   } else {
                     peg$currPos = s0;
                     s0 = peg$c0;
@@ -17637,7 +17995,7 @@ module.exports = function(facet) {
         }
         if (s0 === peg$FAILED) {
           s0 = peg$currPos;
-          s1 = peg$parseQuantileToken();
+          s1 = peg$parseAggregateFn();
           if (s1 !== peg$FAILED) {
             if (input.charCodeAt(peg$currPos) === 40) {
               s2 = peg$c53;
@@ -17653,29 +18011,86 @@ module.exports = function(facet) {
                 if (s4 !== peg$FAILED) {
                   s5 = peg$parse_();
                   if (s5 !== peg$FAILED) {
-                    if (input.charCodeAt(peg$currPos) === 44) {
-                      s6 = peg$c6;
+                    if (input.charCodeAt(peg$currPos) === 41) {
+                      s6 = peg$c55;
                       peg$currPos++;
                     } else {
                       s6 = peg$FAILED;
-                      if (peg$silentFails === 0) { peg$fail(peg$c7); }
+                      if (peg$silentFails === 0) { peg$fail(peg$c56); }
                     }
                     if (s6 !== peg$FAILED) {
-                      s7 = peg$parse_();
-                      if (s7 !== peg$FAILED) {
-                        s8 = peg$parseNumber();
-                        if (s8 !== peg$FAILED) {
-                          if (input.charCodeAt(peg$currPos) === 41) {
-                            s9 = peg$c55;
-                            peg$currPos++;
-                          } else {
-                            s9 = peg$FAILED;
-                            if (peg$silentFails === 0) { peg$fail(peg$c56); }
-                          }
-                          if (s9 !== peg$FAILED) {
-                            peg$reportedPos = s0;
-                            s1 = peg$c63(s4, s8);
-                            s0 = s1;
+                      peg$reportedPos = s0;
+                      s1 = peg$c61(s1, s4);
+                      s0 = s1;
+                    } else {
+                      peg$currPos = s0;
+                      s0 = peg$c0;
+                    }
+                  } else {
+                    peg$currPos = s0;
+                    s0 = peg$c0;
+                  }
+                } else {
+                  peg$currPos = s0;
+                  s0 = peg$c0;
+                }
+              } else {
+                peg$currPos = s0;
+                s0 = peg$c0;
+              }
+            } else {
+              peg$currPos = s0;
+              s0 = peg$c0;
+            }
+          } else {
+            peg$currPos = s0;
+            s0 = peg$c0;
+          }
+          if (s0 === peg$FAILED) {
+            s0 = peg$currPos;
+            s1 = peg$parseQuantileToken();
+            if (s1 !== peg$FAILED) {
+              if (input.charCodeAt(peg$currPos) === 40) {
+                s2 = peg$c53;
+                peg$currPos++;
+              } else {
+                s2 = peg$FAILED;
+                if (peg$silentFails === 0) { peg$fail(peg$c54); }
+              }
+              if (s2 !== peg$FAILED) {
+                s3 = peg$parse_();
+                if (s3 !== peg$FAILED) {
+                  s4 = peg$parseOrExpression();
+                  if (s4 !== peg$FAILED) {
+                    s5 = peg$parse_();
+                    if (s5 !== peg$FAILED) {
+                      if (input.charCodeAt(peg$currPos) === 44) {
+                        s6 = peg$c6;
+                        peg$currPos++;
+                      } else {
+                        s6 = peg$FAILED;
+                        if (peg$silentFails === 0) { peg$fail(peg$c7); }
+                      }
+                      if (s6 !== peg$FAILED) {
+                        s7 = peg$parse_();
+                        if (s7 !== peg$FAILED) {
+                          s8 = peg$parseNumber();
+                          if (s8 !== peg$FAILED) {
+                            if (input.charCodeAt(peg$currPos) === 41) {
+                              s9 = peg$c55;
+                              peg$currPos++;
+                            } else {
+                              s9 = peg$FAILED;
+                              if (peg$silentFails === 0) { peg$fail(peg$c56); }
+                            }
+                            if (s9 !== peg$FAILED) {
+                              peg$reportedPos = s0;
+                              s1 = peg$c62(s4, s8);
+                              s0 = s1;
+                            } else {
+                              peg$currPos = s0;
+                              s0 = peg$c0;
+                            }
                           } else {
                             peg$currPos = s0;
                             s0 = peg$c0;
@@ -17708,9 +18123,6 @@ module.exports = function(facet) {
               peg$currPos = s0;
               s0 = peg$c0;
             }
-          } else {
-            peg$currPos = s0;
-            s0 = peg$c0;
           }
         }
       }
@@ -17728,6 +18140,9 @@ module.exports = function(facet) {
           s0 = peg$parseMinToken();
           if (s0 === peg$FAILED) {
             s0 = peg$parseMaxToken();
+            if (s0 === peg$FAILED) {
+              s0 = peg$parseCountDistinctToken();
+            }
           }
         }
       }
@@ -17739,7 +18154,7 @@ module.exports = function(facet) {
       var s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13;
 
       s0 = peg$currPos;
-      s1 = peg$parseTimeBucketToken();
+      s1 = peg$parseNumberBucketToken();
       if (s1 !== peg$FAILED) {
         if (input.charCodeAt(peg$currPos) === 40) {
           s2 = peg$c53;
@@ -17765,7 +18180,7 @@ module.exports = function(facet) {
                 if (s6 !== peg$FAILED) {
                   s7 = peg$parse_();
                   if (s7 !== peg$FAILED) {
-                    s8 = peg$parseNameOrString();
+                    s8 = peg$parseNumber();
                     if (s8 !== peg$FAILED) {
                       s9 = peg$parse_();
                       if (s9 !== peg$FAILED) {
@@ -17779,7 +18194,7 @@ module.exports = function(facet) {
                         if (s10 !== peg$FAILED) {
                           s11 = peg$parse_();
                           if (s11 !== peg$FAILED) {
-                            s12 = peg$parseNameOrString();
+                            s12 = peg$parseNumber();
                             if (s12 !== peg$FAILED) {
                               if (input.charCodeAt(peg$currPos) === 41) {
                                 s13 = peg$c55;
@@ -17790,7 +18205,7 @@ module.exports = function(facet) {
                               }
                               if (s13 !== peg$FAILED) {
                                 peg$reportedPos = s0;
-                                s1 = peg$c64(s4, s8, s12);
+                                s1 = peg$c63(s4, s8, s12);
                                 s0 = s1;
                               } else {
                                 peg$currPos = s0;
@@ -17846,7 +18261,7 @@ module.exports = function(facet) {
       }
       if (s0 === peg$FAILED) {
         s0 = peg$currPos;
-        s1 = peg$parseNumberBucketToken();
+        s1 = peg$parseTimeBucketToken();
         if (s1 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 40) {
             s2 = peg$c53;
@@ -17872,7 +18287,7 @@ module.exports = function(facet) {
                   if (s6 !== peg$FAILED) {
                     s7 = peg$parse_();
                     if (s7 !== peg$FAILED) {
-                      s8 = peg$parseNumber();
+                      s8 = peg$parseNameOrString();
                       if (s8 !== peg$FAILED) {
                         s9 = peg$parse_();
                         if (s9 !== peg$FAILED) {
@@ -17886,7 +18301,7 @@ module.exports = function(facet) {
                           if (s10 !== peg$FAILED) {
                             s11 = peg$parse_();
                             if (s11 !== peg$FAILED) {
-                              s12 = peg$parseNumber();
+                              s12 = peg$parseNameOrString();
                               if (s12 !== peg$FAILED) {
                                 if (input.charCodeAt(peg$currPos) === 41) {
                                   s13 = peg$c55;
@@ -17897,7 +18312,7 @@ module.exports = function(facet) {
                                 }
                                 if (s13 !== peg$FAILED) {
                                   peg$reportedPos = s0;
-                                  s1 = peg$c65(s4, s8, s12);
+                                  s1 = peg$c64(s4, s8, s12);
                                   s0 = s1;
                                 } else {
                                   peg$currPos = s0;
@@ -18004,7 +18419,7 @@ module.exports = function(facet) {
                                   }
                                   if (s13 !== peg$FAILED) {
                                     peg$reportedPos = s0;
-                                    s1 = peg$c66(s4, s8, s12);
+                                    s1 = peg$c65(s4, s8, s12);
                                     s0 = s1;
                                   } else {
                                     peg$currPos = s0;
@@ -18111,7 +18526,7 @@ module.exports = function(facet) {
                                     }
                                     if (s13 !== peg$FAILED) {
                                       peg$reportedPos = s0;
-                                      s1 = peg$c67(s4, s8, s12);
+                                      s1 = peg$c66(s4, s8, s12);
                                       s0 = s1;
                                     } else {
                                       peg$currPos = s0;
@@ -18179,7 +18594,7 @@ module.exports = function(facet) {
       s1 = peg$parseRef();
       if (s1 !== peg$FAILED) {
         peg$reportedPos = s0;
-        s1 = peg$c68(s1);
+        s1 = peg$c67(s1);
       }
       s0 = s1;
 
@@ -18193,15 +18608,15 @@ module.exports = function(facet) {
       s1 = peg$parseName();
       if (s1 !== peg$FAILED) {
         peg$reportedPos = peg$currPos;
-        s2 = peg$c69(s1);
+        s2 = peg$c68(s1);
         if (s2) {
           s2 = peg$c0;
         } else {
-          s2 = peg$c70;
+          s2 = peg$c69;
         }
         if (s2 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c71(s1);
+          s1 = peg$c70(s1);
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -18214,31 +18629,31 @@ module.exports = function(facet) {
       if (s0 === peg$FAILED) {
         s0 = peg$currPos;
         if (input.charCodeAt(peg$currPos) === 96) {
-          s1 = peg$c72;
+          s1 = peg$c71;
           peg$currPos++;
         } else {
           s1 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c73); }
+          if (peg$silentFails === 0) { peg$fail(peg$c72); }
         }
         if (s1 !== peg$FAILED) {
           s2 = peg$currPos;
           s3 = [];
-          if (peg$c74.test(input.charAt(peg$currPos))) {
+          if (peg$c73.test(input.charAt(peg$currPos))) {
             s4 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s4 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c75); }
+            if (peg$silentFails === 0) { peg$fail(peg$c74); }
           }
           if (s4 !== peg$FAILED) {
             while (s4 !== peg$FAILED) {
               s3.push(s4);
-              if (peg$c74.test(input.charAt(peg$currPos))) {
+              if (peg$c73.test(input.charAt(peg$currPos))) {
                 s4 = input.charAt(peg$currPos);
                 peg$currPos++;
               } else {
                 s4 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c75); }
+                if (peg$silentFails === 0) { peg$fail(peg$c74); }
               }
             }
           } else {
@@ -18250,15 +18665,15 @@ module.exports = function(facet) {
           s2 = s3;
           if (s2 !== peg$FAILED) {
             if (input.charCodeAt(peg$currPos) === 96) {
-              s3 = peg$c72;
+              s3 = peg$c71;
               peg$currPos++;
             } else {
               s3 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c73); }
+              if (peg$silentFails === 0) { peg$fail(peg$c72); }
             }
             if (s3 !== peg$FAILED) {
               peg$reportedPos = s0;
-              s1 = peg$c71(s2);
+              s1 = peg$c70(s2);
               s0 = s1;
             } else {
               peg$currPos = s0;
@@ -18295,7 +18710,7 @@ module.exports = function(facet) {
       s1 = peg$parseNumber();
       if (s1 !== peg$FAILED) {
         peg$reportedPos = s0;
-        s1 = peg$c76(s1);
+        s1 = peg$c75(s1);
       }
       s0 = s1;
       if (s0 === peg$FAILED) {
@@ -18303,7 +18718,7 @@ module.exports = function(facet) {
         s1 = peg$parseString();
         if (s1 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c77(s1);
+          s1 = peg$c76(s1);
         }
         s0 = s1;
         if (s0 === peg$FAILED) {
@@ -18317,7 +18732,7 @@ module.exports = function(facet) {
           }
           if (s1 !== peg$FAILED) {
             peg$reportedPos = s0;
-            s1 = peg$c78(s1);
+            s1 = peg$c77(s1);
           }
           s0 = s1;
         }
@@ -18332,25 +18747,25 @@ module.exports = function(facet) {
       peg$silentFails++;
       s0 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 39) {
-        s1 = peg$c80;
+        s1 = peg$c79;
         peg$currPos++;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c81); }
+        if (peg$silentFails === 0) { peg$fail(peg$c80); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$parseNotSQuote();
         if (s2 !== peg$FAILED) {
           if (input.charCodeAt(peg$currPos) === 39) {
-            s3 = peg$c80;
+            s3 = peg$c79;
             peg$currPos++;
           } else {
             s3 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c81); }
+            if (peg$silentFails === 0) { peg$fail(peg$c80); }
           }
           if (s3 !== peg$FAILED) {
             peg$reportedPos = s0;
-            s1 = peg$c82(s2);
+            s1 = peg$c81(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -18367,17 +18782,17 @@ module.exports = function(facet) {
       if (s0 === peg$FAILED) {
         s0 = peg$currPos;
         if (input.charCodeAt(peg$currPos) === 39) {
-          s1 = peg$c80;
+          s1 = peg$c79;
           peg$currPos++;
         } else {
           s1 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c81); }
+          if (peg$silentFails === 0) { peg$fail(peg$c80); }
         }
         if (s1 !== peg$FAILED) {
           s2 = peg$parseNotSQuote();
           if (s2 !== peg$FAILED) {
             peg$reportedPos = s0;
-            s1 = peg$c83(s2);
+            s1 = peg$c82(s2);
             s0 = s1;
           } else {
             peg$currPos = s0;
@@ -18390,25 +18805,25 @@ module.exports = function(facet) {
         if (s0 === peg$FAILED) {
           s0 = peg$currPos;
           if (input.charCodeAt(peg$currPos) === 34) {
-            s1 = peg$c84;
+            s1 = peg$c83;
             peg$currPos++;
           } else {
             s1 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c85); }
+            if (peg$silentFails === 0) { peg$fail(peg$c84); }
           }
           if (s1 !== peg$FAILED) {
             s2 = peg$parseNotDQuote();
             if (s2 !== peg$FAILED) {
               if (input.charCodeAt(peg$currPos) === 34) {
-                s3 = peg$c84;
+                s3 = peg$c83;
                 peg$currPos++;
               } else {
                 s3 = peg$FAILED;
-                if (peg$silentFails === 0) { peg$fail(peg$c85); }
+                if (peg$silentFails === 0) { peg$fail(peg$c84); }
               }
               if (s3 !== peg$FAILED) {
                 peg$reportedPos = s0;
-                s1 = peg$c82(s2);
+                s1 = peg$c81(s2);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -18425,17 +18840,17 @@ module.exports = function(facet) {
           if (s0 === peg$FAILED) {
             s0 = peg$currPos;
             if (input.charCodeAt(peg$currPos) === 34) {
-              s1 = peg$c84;
+              s1 = peg$c83;
               peg$currPos++;
             } else {
               s1 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c85); }
+              if (peg$silentFails === 0) { peg$fail(peg$c84); }
             }
             if (s1 !== peg$FAILED) {
               s2 = peg$parseNotDQuote();
               if (s2 !== peg$FAILED) {
                 peg$reportedPos = s0;
-                s1 = peg$c86(s2);
+                s1 = peg$c85(s2);
                 s0 = s1;
               } else {
                 peg$currPos = s0;
@@ -18451,7 +18866,7 @@ module.exports = function(facet) {
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c79); }
+        if (peg$silentFails === 0) { peg$fail(peg$c78); }
       }
 
       return s0;
@@ -18461,12 +18876,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c87) {
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c86) {
         s1 = input.substr(peg$currPos, 4);
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c88); }
+        if (peg$silentFails === 0) { peg$fail(peg$c87); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18474,14 +18889,14 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
         }
         if (s2 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c89();
+          s1 = peg$c88();
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -18499,12 +18914,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c90) {
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c89) {
         s1 = input.substr(peg$currPos, 4);
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c91); }
+        if (peg$silentFails === 0) { peg$fail(peg$c90); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18512,14 +18927,14 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
         }
         if (s2 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c92();
+          s1 = peg$c91();
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -18537,12 +18952,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c93) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c92) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c94); }
+        if (peg$silentFails === 0) { peg$fail(peg$c93); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18550,14 +18965,14 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
         }
         if (s2 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c95();
+          s1 = peg$c94();
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -18575,12 +18990,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c96) {
+      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c95) {
         s1 = input.substr(peg$currPos, 6);
         peg$currPos += 6;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c97); }
+        if (peg$silentFails === 0) { peg$fail(peg$c96); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18588,7 +19003,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -18612,12 +19027,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c98) {
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c97) {
         s1 = input.substr(peg$currPos, 4);
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c99); }
+        if (peg$silentFails === 0) { peg$fail(peg$c98); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18625,7 +19040,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -18649,12 +19064,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c100) {
+      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c99) {
         s1 = input.substr(peg$currPos, 2);
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c101); }
+        if (peg$silentFails === 0) { peg$fail(peg$c100); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18662,7 +19077,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -18686,12 +19101,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c102) {
+      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c101) {
         s1 = input.substr(peg$currPos, 2);
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c103); }
+        if (peg$silentFails === 0) { peg$fail(peg$c102); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18699,7 +19114,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -18723,12 +19138,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c104) {
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c103) {
         s1 = input.substr(peg$currPos, 4);
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c105); }
+        if (peg$silentFails === 0) { peg$fail(peg$c104); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18736,7 +19151,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -18760,12 +19175,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c106) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c105) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c107); }
+        if (peg$silentFails === 0) { peg$fail(peg$c106); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18773,7 +19188,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -18797,12 +19212,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c108) {
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c107) {
         s1 = input.substr(peg$currPos, 4);
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c109); }
+        if (peg$silentFails === 0) { peg$fail(peg$c108); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18810,7 +19225,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -18834,12 +19249,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c110) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c109) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c111); }
+        if (peg$silentFails === 0) { peg$fail(peg$c110); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18847,7 +19262,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -18871,12 +19286,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c112) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c111) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c113); }
+        if (peg$silentFails === 0) { peg$fail(peg$c112); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18884,7 +19299,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -18908,12 +19323,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c114) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c113) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c115); }
+        if (peg$silentFails === 0) { peg$fail(peg$c114); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18921,7 +19336,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -18945,12 +19360,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c116) {
+      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c115) {
         s1 = input.substr(peg$currPos, 2);
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c117); }
+        if (peg$silentFails === 0) { peg$fail(peg$c116); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18958,7 +19373,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -18982,12 +19397,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c118) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c117) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c119); }
+        if (peg$silentFails === 0) { peg$fail(peg$c118); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -18995,7 +19410,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19019,12 +19434,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c120) {
+      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c119) {
         s1 = input.substr(peg$currPos, 6);
         peg$currPos += 6;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c121); }
+        if (peg$silentFails === 0) { peg$fail(peg$c120); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19032,7 +19447,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19056,12 +19471,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c122) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c121) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c123); }
+        if (peg$silentFails === 0) { peg$fail(peg$c122); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19069,7 +19484,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19093,12 +19508,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c124) {
+      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c123) {
         s1 = input.substr(peg$currPos, 3);
         peg$currPos += 3;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c125); }
+        if (peg$silentFails === 0) { peg$fail(peg$c124); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19106,14 +19521,14 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
         }
         if (s2 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c126();
+          s1 = peg$c125();
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -19131,12 +19546,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c127) {
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c126) {
         s1 = input.substr(peg$currPos, 4);
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c128); }
+        if (peg$silentFails === 0) { peg$fail(peg$c127); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19144,14 +19559,14 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
         }
         if (s2 !== peg$FAILED) {
           peg$reportedPos = s0;
-          s1 = peg$c129();
+          s1 = peg$c128();
           s0 = s1;
         } else {
           peg$currPos = s0;
@@ -19169,12 +19584,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 7).toLowerCase() === peg$c130) {
+      if (input.substr(peg$currPos, 7).toLowerCase() === peg$c129) {
         s1 = input.substr(peg$currPos, 7);
         peg$currPos += 7;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c131); }
+        if (peg$silentFails === 0) { peg$fail(peg$c130); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19182,7 +19597,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19211,7 +19626,7 @@ module.exports = function(facet) {
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c132); }
+        if (peg$silentFails === 0) { peg$fail(peg$c131); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19219,7 +19634,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19243,12 +19658,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c133) {
+      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c132) {
         s1 = input.substr(peg$currPos, 2);
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c134); }
+        if (peg$silentFails === 0) { peg$fail(peg$c133); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19256,7 +19671,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19280,12 +19695,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c135) {
+      if (input.substr(peg$currPos, 4).toLowerCase() === peg$c134) {
         s1 = input.substr(peg$currPos, 4);
         peg$currPos += 4;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c136); }
+        if (peg$silentFails === 0) { peg$fail(peg$c135); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19293,7 +19708,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19317,12 +19732,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 8).toLowerCase() === peg$c137) {
+      if (input.substr(peg$currPos, 8).toLowerCase() === peg$c136) {
         s1 = input.substr(peg$currPos, 8);
         peg$currPos += 8;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c138); }
+        if (peg$silentFails === 0) { peg$fail(peg$c137); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19330,7 +19745,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19354,12 +19769,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c139) {
+      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c138) {
         s1 = input.substr(peg$currPos, 3);
         peg$currPos += 3;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c140); }
+        if (peg$silentFails === 0) { peg$fail(peg$c139); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19367,7 +19782,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19391,12 +19806,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c141) {
+      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c140) {
         s1 = input.substr(peg$currPos, 3);
         peg$currPos += 3;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c142); }
+        if (peg$silentFails === 0) { peg$fail(peg$c141); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19404,7 +19819,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19428,12 +19843,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c143) {
+      if (input.substr(peg$currPos, 2).toLowerCase() === peg$c142) {
         s1 = input.substr(peg$currPos, 2);
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c144); }
+        if (peg$silentFails === 0) { peg$fail(peg$c143); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19441,7 +19856,81 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
+        } else {
+          peg$currPos = s2;
+          s2 = peg$c0;
+        }
+        if (s2 !== peg$FAILED) {
+          s1 = [s1, s2];
+          s0 = s1;
+        } else {
+          peg$currPos = s0;
+          s0 = peg$c0;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$c0;
+      }
+
+      return s0;
+    }
+
+    function peg$parseDistinctToken() {
+      var s0, s1, s2, s3;
+
+      s0 = peg$currPos;
+      if (input.substr(peg$currPos, 8).toLowerCase() === peg$c144) {
+        s1 = input.substr(peg$currPos, 8);
+        peg$currPos += 8;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c145); }
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = peg$currPos;
+        peg$silentFails++;
+        s3 = peg$parseIdentifierPart();
+        peg$silentFails--;
+        if (s3 === peg$FAILED) {
+          s2 = peg$c69;
+        } else {
+          peg$currPos = s2;
+          s2 = peg$c0;
+        }
+        if (s2 !== peg$FAILED) {
+          s1 = [s1, s2];
+          s0 = s1;
+        } else {
+          peg$currPos = s0;
+          s0 = peg$c0;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$c0;
+      }
+
+      return s0;
+    }
+
+    function peg$parseStarToken() {
+      var s0, s1, s2, s3;
+
+      s0 = peg$currPos;
+      if (input.charCodeAt(peg$currPos) === 42) {
+        s1 = peg$c146;
+        peg$currPos++;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c147); }
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = peg$currPos;
+        peg$silentFails++;
+        s3 = peg$parseIdentifierPart();
+        peg$silentFails--;
+        if (s3 === peg$FAILED) {
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19465,47 +19954,9 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c145) {
+      if (input.substr(peg$currPos, 5).toLowerCase() === peg$c148) {
         s1 = input.substr(peg$currPos, 5);
         peg$currPos += 5;
-      } else {
-        s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c146); }
-      }
-      if (s1 !== peg$FAILED) {
-        s2 = peg$currPos;
-        peg$silentFails++;
-        s3 = peg$parseIdentifierPart();
-        peg$silentFails--;
-        if (s3 === peg$FAILED) {
-          s2 = peg$c70;
-        } else {
-          peg$currPos = s2;
-          s2 = peg$c0;
-        }
-        if (s2 !== peg$FAILED) {
-          peg$reportedPos = s0;
-          s1 = peg$c147();
-          s0 = s1;
-        } else {
-          peg$currPos = s0;
-          s0 = peg$c0;
-        }
-      } else {
-        peg$currPos = s0;
-        s0 = peg$c0;
-      }
-
-      return s0;
-    }
-
-    function peg$parseSumToken() {
-      var s0, s1, s2, s3;
-
-      s0 = peg$currPos;
-      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c148) {
-        s1 = input.substr(peg$currPos, 3);
-        peg$currPos += 3;
       } else {
         s1 = peg$FAILED;
         if (peg$silentFails === 0) { peg$fail(peg$c149); }
@@ -19516,7 +19967,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19537,13 +19988,13 @@ module.exports = function(facet) {
       return s0;
     }
 
-    function peg$parseAvgToken() {
+    function peg$parseCountDistinctToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c151) {
-        s1 = input.substr(peg$currPos, 3);
-        peg$currPos += 3;
+      if (input.substr(peg$currPos, 14).toLowerCase() === peg$c151) {
+        s1 = input.substr(peg$currPos, 14);
+        peg$currPos += 14;
       } else {
         s1 = peg$FAILED;
         if (peg$silentFails === 0) { peg$fail(peg$c152); }
@@ -19554,7 +20005,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19575,7 +20026,7 @@ module.exports = function(facet) {
       return s0;
     }
 
-    function peg$parseMinToken() {
+    function peg$parseSumToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
@@ -19592,7 +20043,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19613,7 +20064,7 @@ module.exports = function(facet) {
       return s0;
     }
 
-    function peg$parseMaxToken() {
+    function peg$parseAvgToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
@@ -19630,7 +20081,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19651,13 +20102,13 @@ module.exports = function(facet) {
       return s0;
     }
 
-    function peg$parseQuantileToken() {
+    function peg$parseMinToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 8).toLowerCase() === peg$c160) {
-        s1 = input.substr(peg$currPos, 8);
-        peg$currPos += 8;
+      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c160) {
+        s1 = input.substr(peg$currPos, 3);
+        peg$currPos += 3;
       } else {
         s1 = peg$FAILED;
         if (peg$silentFails === 0) { peg$fail(peg$c161); }
@@ -19668,7 +20119,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19689,13 +20140,13 @@ module.exports = function(facet) {
       return s0;
     }
 
-    function peg$parseTimeBucketToken() {
+    function peg$parseMaxToken() {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 11).toLowerCase() === peg$c163) {
-        s1 = input.substr(peg$currPos, 11);
-        peg$currPos += 11;
+      if (input.substr(peg$currPos, 3).toLowerCase() === peg$c163) {
+        s1 = input.substr(peg$currPos, 3);
+        peg$currPos += 3;
       } else {
         s1 = peg$FAILED;
         if (peg$silentFails === 0) { peg$fail(peg$c164); }
@@ -19706,7 +20157,83 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
+        } else {
+          peg$currPos = s2;
+          s2 = peg$c0;
+        }
+        if (s2 !== peg$FAILED) {
+          peg$reportedPos = s0;
+          s1 = peg$c165();
+          s0 = s1;
+        } else {
+          peg$currPos = s0;
+          s0 = peg$c0;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$c0;
+      }
+
+      return s0;
+    }
+
+    function peg$parseQuantileToken() {
+      var s0, s1, s2, s3;
+
+      s0 = peg$currPos;
+      if (input.substr(peg$currPos, 8).toLowerCase() === peg$c166) {
+        s1 = input.substr(peg$currPos, 8);
+        peg$currPos += 8;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c167); }
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = peg$currPos;
+        peg$silentFails++;
+        s3 = peg$parseIdentifierPart();
+        peg$silentFails--;
+        if (s3 === peg$FAILED) {
+          s2 = peg$c69;
+        } else {
+          peg$currPos = s2;
+          s2 = peg$c0;
+        }
+        if (s2 !== peg$FAILED) {
+          peg$reportedPos = s0;
+          s1 = peg$c168();
+          s0 = s1;
+        } else {
+          peg$currPos = s0;
+          s0 = peg$c0;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$c0;
+      }
+
+      return s0;
+    }
+
+    function peg$parseTimeBucketToken() {
+      var s0, s1, s2, s3;
+
+      s0 = peg$currPos;
+      if (input.substr(peg$currPos, 11).toLowerCase() === peg$c169) {
+        s1 = input.substr(peg$currPos, 11);
+        peg$currPos += 11;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c170); }
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = peg$currPos;
+        peg$silentFails++;
+        s3 = peg$parseIdentifierPart();
+        peg$silentFails--;
+        if (s3 === peg$FAILED) {
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19730,12 +20257,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 13).toLowerCase() === peg$c165) {
+      if (input.substr(peg$currPos, 13).toLowerCase() === peg$c171) {
         s1 = input.substr(peg$currPos, 13);
         peg$currPos += 13;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c166); }
+        if (peg$silentFails === 0) { peg$fail(peg$c172); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19743,7 +20270,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19767,12 +20294,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 9).toLowerCase() === peg$c167) {
+      if (input.substr(peg$currPos, 9).toLowerCase() === peg$c173) {
         s1 = input.substr(peg$currPos, 9);
         peg$currPos += 9;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c168); }
+        if (peg$silentFails === 0) { peg$fail(peg$c174); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19780,7 +20307,7 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19804,12 +20331,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c169) {
+      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c175) {
         s1 = input.substr(peg$currPos, 6);
         peg$currPos += 6;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c170); }
+        if (peg$silentFails === 0) { peg$fail(peg$c176); }
       }
       if (s1 !== peg$FAILED) {
         s2 = peg$currPos;
@@ -19817,7 +20344,44 @@ module.exports = function(facet) {
         s3 = peg$parseIdentifierPart();
         peg$silentFails--;
         if (s3 === peg$FAILED) {
-          s2 = peg$c70;
+          s2 = peg$c69;
+        } else {
+          peg$currPos = s2;
+          s2 = peg$c0;
+        }
+        if (s2 !== peg$FAILED) {
+          s1 = [s1, s2];
+          s0 = s1;
+        } else {
+          peg$currPos = s0;
+          s0 = peg$c0;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$c0;
+      }
+
+      return s0;
+    }
+
+    function peg$parseConcatToken() {
+      var s0, s1, s2, s3;
+
+      s0 = peg$currPos;
+      if (input.substr(peg$currPos, 6).toLowerCase() === peg$c177) {
+        s1 = input.substr(peg$currPos, 6);
+        peg$currPos += 6;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) { peg$fail(peg$c178); }
+      }
+      if (s1 !== peg$FAILED) {
+        s2 = peg$currPos;
+        peg$silentFails++;
+        s3 = peg$parseIdentifierPart();
+        peg$silentFails--;
+        if (s3 === peg$FAILED) {
+          s2 = peg$c69;
         } else {
           peg$currPos = s2;
           s2 = peg$c0;
@@ -19840,12 +20404,12 @@ module.exports = function(facet) {
     function peg$parseIdentifierPart() {
       var s0;
 
-      if (peg$c171.test(input.charAt(peg$currPos))) {
+      if (peg$c179.test(input.charAt(peg$currPos))) {
         s0 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c172); }
+        if (peg$silentFails === 0) { peg$fail(peg$c180); }
       }
 
       return s0;
@@ -19890,13 +20454,13 @@ module.exports = function(facet) {
       s1 = s2;
       if (s1 !== peg$FAILED) {
         peg$reportedPos = s0;
-        s1 = peg$c174(s1);
+        s1 = peg$c182(s1);
       }
       s0 = s1;
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c173); }
+        if (peg$silentFails === 0) { peg$fail(peg$c181); }
       }
 
       return s0;
@@ -19908,22 +20472,22 @@ module.exports = function(facet) {
       s0 = peg$currPos;
       s1 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 45) {
-        s2 = peg$c175;
+        s2 = peg$c183;
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c176); }
+        if (peg$silentFails === 0) { peg$fail(peg$c184); }
       }
       if (s2 === peg$FAILED) {
         s2 = peg$c2;
       }
       if (s2 !== peg$FAILED) {
-        if (peg$c177.test(input.charAt(peg$currPos))) {
+        if (peg$c185.test(input.charAt(peg$currPos))) {
           s3 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s3 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c178); }
+          if (peg$silentFails === 0) { peg$fail(peg$c186); }
         }
         if (s3 !== peg$FAILED) {
           s4 = peg$parseDigits();
@@ -19950,11 +20514,11 @@ module.exports = function(facet) {
         s0 = peg$currPos;
         s1 = peg$currPos;
         if (input.charCodeAt(peg$currPos) === 45) {
-          s2 = peg$c175;
+          s2 = peg$c183;
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c176); }
+          if (peg$silentFails === 0) { peg$fail(peg$c184); }
         }
         if (s2 === peg$FAILED) {
           s2 = peg$c2;
@@ -19987,11 +20551,11 @@ module.exports = function(facet) {
       s0 = peg$currPos;
       s1 = peg$currPos;
       if (input.charCodeAt(peg$currPos) === 46) {
-        s2 = peg$c179;
+        s2 = peg$c187;
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c180); }
+        if (peg$silentFails === 0) { peg$fail(peg$c188); }
       }
       if (s2 !== peg$FAILED) {
         s3 = peg$parseDigits();
@@ -20019,12 +20583,12 @@ module.exports = function(facet) {
 
       s0 = peg$currPos;
       s1 = peg$currPos;
-      if (input.substr(peg$currPos, 1).toLowerCase() === peg$c181) {
+      if (input.substr(peg$currPos, 1).toLowerCase() === peg$c189) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c182); }
+        if (peg$silentFails === 0) { peg$fail(peg$c190); }
       }
       if (s2 !== peg$FAILED) {
         if (peg$c47.test(input.charAt(peg$currPos))) {
@@ -20087,12 +20651,12 @@ module.exports = function(facet) {
     function peg$parseDigit() {
       var s0;
 
-      if (peg$c183.test(input.charAt(peg$currPos))) {
+      if (peg$c191.test(input.charAt(peg$currPos))) {
         s0 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c184); }
+        if (peg$silentFails === 0) { peg$fail(peg$c192); }
       }
 
       return s0;
@@ -20104,30 +20668,30 @@ module.exports = function(facet) {
       peg$silentFails++;
       s0 = peg$currPos;
       s1 = peg$currPos;
-      if (peg$c186.test(input.charAt(peg$currPos))) {
+      if (peg$c194.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c187); }
+        if (peg$silentFails === 0) { peg$fail(peg$c195); }
       }
       if (s2 !== peg$FAILED) {
         s3 = [];
-        if (peg$c188.test(input.charAt(peg$currPos))) {
+        if (peg$c196.test(input.charAt(peg$currPos))) {
           s4 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s4 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c189); }
+          if (peg$silentFails === 0) { peg$fail(peg$c197); }
         }
         while (s4 !== peg$FAILED) {
           s3.push(s4);
-          if (peg$c188.test(input.charAt(peg$currPos))) {
+          if (peg$c196.test(input.charAt(peg$currPos))) {
             s4 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s4 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c189); }
+            if (peg$silentFails === 0) { peg$fail(peg$c197); }
           }
         }
         if (s3 !== peg$FAILED) {
@@ -20148,7 +20712,7 @@ module.exports = function(facet) {
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c185); }
+        if (peg$silentFails === 0) { peg$fail(peg$c193); }
       }
 
       return s0;
@@ -20160,21 +20724,21 @@ module.exports = function(facet) {
       peg$silentFails++;
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c191.test(input.charAt(peg$currPos))) {
+      if (peg$c199.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c192); }
+        if (peg$silentFails === 0) { peg$fail(peg$c200); }
       }
       while (s2 !== peg$FAILED) {
         s1.push(s2);
-        if (peg$c191.test(input.charAt(peg$currPos))) {
+        if (peg$c199.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c192); }
+          if (peg$silentFails === 0) { peg$fail(peg$c200); }
         }
       }
       if (s1 !== peg$FAILED) {
@@ -20184,7 +20748,7 @@ module.exports = function(facet) {
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c190); }
+        if (peg$silentFails === 0) { peg$fail(peg$c198); }
       }
 
       return s0;
@@ -20196,21 +20760,21 @@ module.exports = function(facet) {
       peg$silentFails++;
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c194.test(input.charAt(peg$currPos))) {
+      if (peg$c202.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c195); }
+        if (peg$silentFails === 0) { peg$fail(peg$c203); }
       }
       while (s2 !== peg$FAILED) {
         s1.push(s2);
-        if (peg$c194.test(input.charAt(peg$currPos))) {
+        if (peg$c202.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c195); }
+          if (peg$silentFails === 0) { peg$fail(peg$c203); }
         }
       }
       if (s1 !== peg$FAILED) {
@@ -20220,7 +20784,7 @@ module.exports = function(facet) {
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c193); }
+        if (peg$silentFails === 0) { peg$fail(peg$c201); }
       }
 
       return s0;
@@ -20232,24 +20796,24 @@ module.exports = function(facet) {
       peg$silentFails++;
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c197.test(input.charAt(peg$currPos))) {
+      if (peg$c205.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c198); }
+        if (peg$silentFails === 0) { peg$fail(peg$c206); }
       }
       if (s2 === peg$FAILED) {
         s2 = peg$parseSingleLineComment();
       }
       while (s2 !== peg$FAILED) {
         s1.push(s2);
-        if (peg$c197.test(input.charAt(peg$currPos))) {
+        if (peg$c205.test(input.charAt(peg$currPos))) {
           s2 = input.charAt(peg$currPos);
           peg$currPos++;
         } else {
           s2 = peg$FAILED;
-          if (peg$silentFails === 0) { peg$fail(peg$c198); }
+          if (peg$silentFails === 0) { peg$fail(peg$c206); }
         }
         if (s2 === peg$FAILED) {
           s2 = peg$parseSingleLineComment();
@@ -20262,7 +20826,7 @@ module.exports = function(facet) {
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c196); }
+        if (peg$silentFails === 0) { peg$fail(peg$c204); }
       }
 
       return s0;
@@ -20274,12 +20838,12 @@ module.exports = function(facet) {
       peg$silentFails++;
       s0 = peg$currPos;
       s1 = [];
-      if (peg$c197.test(input.charAt(peg$currPos))) {
+      if (peg$c205.test(input.charAt(peg$currPos))) {
         s2 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s2 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c198); }
+        if (peg$silentFails === 0) { peg$fail(peg$c206); }
       }
       if (s2 === peg$FAILED) {
         s2 = peg$parseSingleLineComment();
@@ -20287,12 +20851,12 @@ module.exports = function(facet) {
       if (s2 !== peg$FAILED) {
         while (s2 !== peg$FAILED) {
           s1.push(s2);
-          if (peg$c197.test(input.charAt(peg$currPos))) {
+          if (peg$c205.test(input.charAt(peg$currPos))) {
             s2 = input.charAt(peg$currPos);
             peg$currPos++;
           } else {
             s2 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c198); }
+            if (peg$silentFails === 0) { peg$fail(peg$c206); }
           }
           if (s2 === peg$FAILED) {
             s2 = peg$parseSingleLineComment();
@@ -20308,7 +20872,7 @@ module.exports = function(facet) {
       peg$silentFails--;
       if (s0 === peg$FAILED) {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c199); }
+        if (peg$silentFails === 0) { peg$fail(peg$c207); }
       }
 
       return s0;
@@ -20318,12 +20882,12 @@ module.exports = function(facet) {
       var s0, s1, s2, s3, s4, s5;
 
       s0 = peg$currPos;
-      if (input.substr(peg$currPos, 2) === peg$c200) {
-        s1 = peg$c200;
+      if (input.substr(peg$currPos, 2) === peg$c208) {
+        s1 = peg$c208;
         peg$currPos += 2;
       } else {
         s1 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c201); }
+        if (peg$silentFails === 0) { peg$fail(peg$c209); }
       }
       if (s1 !== peg$FAILED) {
         s2 = [];
@@ -20333,7 +20897,7 @@ module.exports = function(facet) {
         s5 = peg$parseLineTerminator();
         peg$silentFails--;
         if (s5 === peg$FAILED) {
-          s4 = peg$c70;
+          s4 = peg$c69;
         } else {
           peg$currPos = s4;
           s4 = peg$c0;
@@ -20344,7 +20908,7 @@ module.exports = function(facet) {
             peg$currPos++;
           } else {
             s5 = peg$FAILED;
-            if (peg$silentFails === 0) { peg$fail(peg$c202); }
+            if (peg$silentFails === 0) { peg$fail(peg$c210); }
           }
           if (s5 !== peg$FAILED) {
             s4 = [s4, s5];
@@ -20365,7 +20929,7 @@ module.exports = function(facet) {
           s5 = peg$parseLineTerminator();
           peg$silentFails--;
           if (s5 === peg$FAILED) {
-            s4 = peg$c70;
+            s4 = peg$c69;
           } else {
             peg$currPos = s4;
             s4 = peg$c0;
@@ -20376,7 +20940,7 @@ module.exports = function(facet) {
               peg$currPos++;
             } else {
               s5 = peg$FAILED;
-              if (peg$silentFails === 0) { peg$fail(peg$c202); }
+              if (peg$silentFails === 0) { peg$fail(peg$c210); }
             }
             if (s5 !== peg$FAILED) {
               s4 = [s4, s5];
@@ -20408,12 +20972,12 @@ module.exports = function(facet) {
     function peg$parseLineTerminator() {
       var s0;
 
-      if (peg$c203.test(input.charAt(peg$currPos))) {
+      if (peg$c211.test(input.charAt(peg$currPos))) {
         s0 = input.charAt(peg$currPos);
         peg$currPos++;
       } else {
         s0 = peg$FAILED;
-        if (peg$silentFails === 0) { peg$fail(peg$c204); }
+        if (peg$silentFails === 0) { peg$fail(peg$c212); }
       }
 
       return s0;
